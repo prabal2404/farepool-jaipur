@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: farepool-jaipur
+    env: node
+    branch: main
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    plan: free
+    envVars: []
