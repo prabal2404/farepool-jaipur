@@ -62,6 +62,22 @@ const usersFile = path.join(root, 'data', 'users.json');
 function readUsers() { try { return JSON.parse(fs.readFileSync(usersFile, 'utf8')); } catch { return {}; } }
 function saveUsers(obj) { fs.writeFileSync(usersFile, JSON.stringify(obj, null, 2)); }
 
+// Messages store
+const messagesFile = path.join(root, 'data', 'messages.json');
+function readMessages() { try { return JSON.parse(fs.readFileSync(messagesFile, 'utf8')); } catch { return []; } }
+function saveMessages(arr) { fs.writeFileSync(messagesFile, JSON.stringify(arr, null, 2)); }
+
+// In-memory SSE clients: map phone -> array of response objects
+const sseClients = {};
+function sendSse(phone, event, data) {
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  Object.keys(sseClients).forEach(key => {
+    sseClients[key].forEach(res => {
+      try { res.write(payload); } catch (e) { /* ignore */ }
+    });
+  });
+}
+
 async function makeFares(from, to, at) {
   const seed = [...`${from}${to}${at}`].reduce((sum, char) => sum + char.charCodeAt(0), 0);
   const base = 115 + (seed % 40);
@@ -105,6 +121,24 @@ http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/pools') return send(res, 200, readPools());
+    // List profiles (phone + ready status)
+    if (req.method === 'GET' && url.pathname === '/api/profiles') {
+      const users = readUsers();
+      const profiles = Object.keys(users).map(k => ({ phone: users[k].phone, ready: !!users[k].ready, created_at: users[k].created_at }));
+      return send(res, 200, { profiles });
+    }
+
+    // Set presence (ready/unready)
+    if (req.method === 'POST' && url.pathname === '/api/profile/ready') {
+      let payload = {};
+      try { payload = await body(req); } catch { payload = {}; }
+      const cookies = parseCookies(req); const session = cookies.fp_session; if (!session) return send(res, 401, { error: 'Not logged in' });
+      const users = readUsers(); const entry = users[session]; if (!entry) return send(res, 401, { error: 'Not logged in' });
+      entry.ready = !!payload.ready; users[session] = entry; saveUsers(users);
+      // notify SSE clients about presence change
+      try { sendSse(entry.phone, 'presence', { phone: entry.phone, ready: !!entry.ready }); } catch (_) {}
+      return send(res, 200, { ok: true, profile: { phone: entry.phone, ready: !!entry.ready } });
+    }
     const checkPath = url.pathname.match(/^\/api\/pools\/([^/]+)\/check$/);
     if (req.method === 'POST' && checkPath) {
       const pools = readPools();
@@ -255,6 +289,48 @@ http.createServer(async (req, res) => {
       pool.requests.push(newReq);
       savePools(pools);
       return send(res, 201, { ok: true, request: newReq });
+    }
+
+    // Send a chat message
+    if (req.method === 'POST' && url.pathname === '/api/messages') {
+      let payload = {};
+      try { payload = await body(req); } catch { payload = {}; }
+      const cookies = parseCookies(req); const session = cookies.fp_session; if (!session) return send(res, 401, { error: 'Not logged in' });
+      const users = readUsers(); const sender = users[session]; if (!sender) return send(res, 401, { error: 'Not logged in' });
+      const to = (payload && String(payload.to || '').trim()) || ''; const text = (payload && String(payload.text || '').trim()) || '';
+      if (!to || !text) return send(res, 400, { error: 'Provide to and text' });
+      const messages = readMessages(); const msg = { id: `m_${Date.now().toString(36)}_${Math.floor(Math.random()*9000+1000)}`, from: sender.phone, to, text, created_at: Date.now() };
+      messages.push(msg); saveMessages(messages);
+      // notify listeners
+      try { sendSse(null, 'message', msg); } catch (_) {}
+      return send(res, 201, { ok: true, message: msg });
+    }
+
+    // Fetch messages between current user and another
+    if (req.method === 'GET' && url.pathname === '/api/messages') {
+      const withPhone = String(url.searchParams.get('with') || '').trim();
+      const cookies = parseCookies(req); const session = cookies.fp_session; if (!session) return send(res, 401, { error: 'Not logged in' });
+      const users = readUsers(); const me = users[session]; if (!me) return send(res, 401, { error: 'Not logged in' });
+      if (!withPhone) return send(res, 400, { error: 'Provide with param' });
+      const messages = readMessages().filter(m => (m.from === me.phone && m.to === withPhone) || (m.from === withPhone && m.to === me.phone));
+      return send(res, 200, { messages });
+    }
+
+    // Server-Sent Events for presence and messages
+    if (req.method === 'GET' && url.pathname === '/api/events') {
+      const cookies = parseCookies(req); const session = cookies.fp_session; if (!session) { res.writeHead(401); return res.end('Not logged in'); }
+      const users = readUsers(); const me = users[session]; if (!me) { res.writeHead(401); return res.end('Not logged in'); }
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+      res.write('\n');
+      // store client
+      sseClients[me.phone] = sseClients[me.phone] || [];
+      sseClients[me.phone].push(res);
+      // send initial presence snapshot
+      try { res.write(`event: presence\ndata: ${JSON.stringify({ phone: me.phone, ready: !!me.ready })}\n\n`); } catch (_) {}
+      req.on('close', () => {
+        try { sseClients[me.phone] = (sseClients[me.phone] || []).filter(r => r !== res); } catch (_) {}
+      });
+      return; // keep connection open
     }
 
     // List requests for a pool (only accessible to pool host)

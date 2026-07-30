@@ -340,3 +340,68 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     }
   } catch (err) { $('#loginStatus').textContent = 'Login failed.'; }
 });
+
+// Presence and chat
+let eventSource = null;
+let currentChatWith = null;
+async function loadProfiles() {
+  try {
+    const res = await fetch('/api/profiles'); const data = await res.json();
+    const list = $('#profilesList'); list.innerHTML = '';
+    if (!data || !Array.isArray(data.profiles) || !data.profiles.length) { list.textContent = 'No profiles yet.'; return; }
+    data.profiles.forEach(p => {
+      const item = document.createElement('div'); item.className = 'profile-item';
+      item.innerHTML = `<strong>${p.phone}</strong> <span class="helper">${p.ready ? 'Ready' : 'Away'}</span> `;
+      const toggle = document.createElement('button'); toggle.textContent = p.ready ? 'Set away' : 'Set ready'; toggle.className = 'secondary';
+      toggle.addEventListener('click', async () => {
+        await fetch('/api/profile/ready', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ ready: !p.ready }) });
+        await loadProfiles();
+      });
+      const chatBtn = document.createElement('button'); chatBtn.textContent = 'Chat'; chatBtn.className = 'primary';
+      chatBtn.addEventListener('click', () => openChat(p.phone));
+      item.appendChild(toggle); item.appendChild(chatBtn); list.appendChild(item);
+    });
+  } catch (err) { $('#profilesList').textContent = 'Unable to load profiles.'; }
+}
+
+function openChat(phone) {
+  currentChatWith = phone; $('#chatWithLabel').textContent = `Chat with ${phone}`; $('#chatModal').setAttribute('aria-hidden', 'false'); $('#chatMessages').innerHTML = '';
+  loadMessages(phone);
+}
+
+async function loadMessages(phone) {
+  try {
+    const res = await fetch(`/api/messages?with=${encodeURIComponent(phone)}`); const data = await res.json();
+    const box = $('#chatMessages'); box.innerHTML = '';
+    if (data && Array.isArray(data.messages)) {
+      data.messages.forEach(m => { const row = document.createElement('div'); row.textContent = `${m.from}: ${m.text}`; box.appendChild(row); });
+      box.scrollTop = box.scrollHeight;
+    }
+  } catch { $('#chatMessages').textContent = 'Unable to load messages.'; }
+}
+
+$('#openPeople').addEventListener('click', () => { $('#peopleModal').setAttribute('aria-hidden', 'false'); loadProfiles(); });
+$('#peopleClose').addEventListener('click', () => { $('#peopleModal').setAttribute('aria-hidden', 'true'); });
+$('#chatClose').addEventListener('click', () => { $('#chatModal').setAttribute('aria-hidden', 'true'); currentChatWith = null; });
+
+$('#chatForm').addEventListener('submit', async (e) => {
+  e.preventDefault(); if (!currentChatWith) return; const text = $('#chatText').value.trim(); if (!text) return; $('#chatText').value = '';
+  try {
+    const res = await fetch('/api/messages', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ to: currentChatWith, text }) });
+    const body = await res.json(); if (res.ok && body && body.ok) { loadMessages(currentChatWith); }
+    else { $('#chatStatus').textContent = body && body.error ? body.error : 'Send failed'; setTimeout(() => $('#chatStatus').textContent = '', 2000); }
+  } catch { $('#chatStatus').textContent = 'Send failed'; setTimeout(() => $('#chatStatus').textContent = '', 2000); }
+});
+
+function ensureEventSource() {
+  try {
+    if (eventSource) return;
+    eventSource = new EventSource('/api/events');
+    eventSource.addEventListener('presence', (e) => { try { const d = JSON.parse(e.data); loadProfiles(); } catch {} });
+    eventSource.addEventListener('message', (e) => { try { const m = JSON.parse(e.data); if (currentChatWith && (m.from === currentChatWith || m.to === currentChatWith)) loadMessages(currentChatWith); } catch {} });
+    eventSource.onerror = () => { /* silent */ };
+  } catch (err) { /* not supported */ }
+}
+
+// Start SSE once app loads and after login
+ensureEventSource();
