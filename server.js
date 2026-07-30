@@ -74,6 +74,50 @@ async function getUberFares(from, to) {
   };
 
   try {
+    // OAuth start: redirect to Uber authorize URL
+    if (url.pathname === '/oauth/uber/start') {
+      const clientId = process.env.UBER_CLIENT_ID;
+      const redirect = process.env.UBER_REDIRECT_URI;
+      const scope = process.env.UBER_SCOPES || 'request profile';
+      if (!clientId || !redirect) return send(res, 400, { error: 'UBER_CLIENT_ID and UBER_REDIRECT_URI must be set in .env' });
+      const authUrl = `https://auth.uber.com/oauth/v2/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirect)}&scope=${encodeURIComponent(scope)}&response_type=code`;
+      res.writeHead(302, { Location: authUrl });
+      return res.end();
+    }
+
+    // OAuth callback: exchange code for token and persist to .env
+    if (url.pathname === '/oauth/uber/callback') {
+      const code = url.searchParams.get('code');
+      if (!code) return send(res, 400, { error: 'Missing code' });
+      const clientId = process.env.UBER_CLIENT_ID;
+      const clientSecret = process.env.UBER_CLIENT_SECRET;
+      const redirect = process.env.UBER_REDIRECT_URI;
+      if (!clientId || !clientSecret || !redirect) return send(res, 400, { error: 'UBER_CLIENT_ID, UBER_CLIENT_SECRET and UBER_REDIRECT_URI must be set in .env' });
+      try {
+        const body = `client_id=${encodeURIComponent(clientId)}&client_secret=${encodeURIComponent(clientSecret)}&grant_type=authorization_code&redirect_uri=${encodeURIComponent(redirect)}&code=${encodeURIComponent(code)}`;
+        const tokenResp = await fetchJson('https://login.uber.com/oauth/v2/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+        if (!tokenResp || !tokenResp.access_token) return send(res, 500, { error: 'Token exchange failed', details: tokenResp });
+        // Persist to .env (replace or append)
+        try {
+          let envContents = '';
+          if (fs.existsSync(envFile)) envContents = fs.readFileSync(envFile, 'utf8');
+          const set = (key, val) => {
+            const re = new RegExp(`^${key}=.*$`, 'm');
+            if (re.test(envContents)) envContents = envContents.replace(re, `${key}=${val}`);
+            else envContents += `\n${key}=${val}`;
+          };
+          set('UBER_TOKEN', tokenResp.access_token);
+          if (tokenResp.refresh_token) set('UBER_REFRESH_TOKEN', tokenResp.refresh_token);
+          fs.writeFileSync(envFile, envContents, 'utf8');
+        } catch (err) {
+          // ignore file write errors but return token in response
+        }
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        return res.end(`<h2>Uber connected</h2><p>Access token stored to server .env (if writable). You can now close this tab.</p>`);
+      } catch (err) {
+        return send(res, 500, { error: 'Token exchange failed', details: String(err) });
+      }
+    }
     const response = await fetchJson(url, { method: 'GET', headers });
     if (!Array.isArray(response?.prices)) return [];
     return response.prices.map((price) => ({
@@ -151,6 +195,17 @@ http.createServer(async (req, res) => {
       return send(res, 200, { fares, notice: 'Live fare estimates are shown where available. Add approved provider API credentials for full real-time results.' });
     }
     if (req.method === 'GET' && url.pathname === '/api/pools') return send(res, 200, readPools());
+    // Simple test endpoint to validate stored UBER_TOKEN
+    if (req.method === 'GET' && url.pathname === '/api/test-uber') {
+      const token = process.env.UBER_TOKEN || process.env.UBER_SERVER_TOKEN || process.env.UBER_API_KEY;
+      if (!token) return send(res, 400, { ok: false, error: 'No UBER_TOKEN found in server environment.' });
+      try {
+        const fares = await getUberFares('Mansarovar', 'Jaipur Junction');
+        return send(res, 200, { ok: true, fares });
+      } catch (err) {
+        return send(res, 500, { ok: false, error: String(err) });
+      }
+    }
     const checkPath = url.pathname.match(/^\/api\/pools\/([^/]+)\/check$/);
     if (req.method === 'POST' && checkPath) {
       const pools = readPools();

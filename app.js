@@ -166,9 +166,16 @@ document.getElementById('joinUseCurrent').addEventListener('click', async () => 
   $('#joinStatus').textContent = 'Locating…';
   navigator.geolocation.getCurrentPosition(async ({ coords }) => {
     const name = await reverseName([coords.latitude, coords.longitude]);
-    $('#joinPickup').value = name;
-    joinPickupCoords = { lat: coords.latitude, lon: coords.longitude };
-    $('#joinStatus').textContent = 'Pickup set to current location.';
+    const focused = document.activeElement;
+    if (focused === $('#joinDrop')) {
+      $('#joinDrop').value = name;
+      joinDropCoords = { lat: coords.latitude, lon: coords.longitude };
+      $('#joinStatus').textContent = 'Drop set to current location.';
+    } else {
+      $('#joinPickup').value = name;
+      joinPickupCoords = { lat: coords.latitude, lon: coords.longitude };
+      $('#joinStatus').textContent = 'Pickup set to current location.';
+    }
   }, (err) => { $('#joinStatus').textContent = `Unable to access location: ${err.message}`; }, { enableHighAccuracy: true, timeout: 10000 });
 });
 
@@ -232,6 +239,11 @@ function initialiseMap() {
   attachAutocomplete('#to', '#toSuggestions');
   attachAutocomplete('#poolFrom', '#poolFromSuggestions');
   attachAutocomplete('#poolTo', '#poolToSuggestions');
+  // When the user focuses the from/to inputs, set the activePin so 'Use current location' targets the correct field
+  const fromInput = $('#from');
+  const toInput = $('#to');
+  if (fromInput) fromInput.addEventListener('focus', () => setMode('pickup'));
+  if (toInput) toInput.addEventListener('focus', () => setMode('dropoff'));
 }
 $('#searchForm').addEventListener('submit', event => { event.preventDefault(); search(); });
 $('#poolForm').addEventListener('submit', async event => {
