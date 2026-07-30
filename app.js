@@ -104,7 +104,7 @@ function demoFares(from, to, time) {
 }
 function renderFares() {
   const lowest = Math.min(...fares.map(fare => fare.price));
-  $('#fareCards').innerHTML = fares.slice().sort((a,b) => a.price - b.price).map(fare => `<article class="fare-card ${fare.price === lowest ? 'lowest' : ''}">${fare.price === lowest ? '<span class="badge">LOWEST</span>' : ''}<div class="provider">${fare.provider}</div><p class="ride-type">${fare.service}</p><div class="amount">₹${fare.price}<small> estimated</small></div><p class="range">Typical fare range for this trip</p><a href="${fare.bookingUrl}" target="_blank" rel="noopener"><button class="secondary">Open ${fare.provider}</button></a></article>`).join('');
+  $('#fareCards').innerHTML = fares.slice().sort((a,b) => a.price - b.price).map(fare => `<article class="fare-card ${fare.price === lowest ? 'lowest' : ''}">${fare.price === lowest ? '<span class="badge">LOWEST</span>' : ''}<div class="provider">${fare.provider}</div><p class="ride-type">${fare.service}</p><div class="amount">₹${fare.price}<small> estimated</small></div><p class="range">Estimated ride price for the full trip</p><div class="fare-note">Use the app to create or join a pool and complete the ride booking.</div></article>`).join('');
 }
 function distanceKm(a, b) { const rad = Math.PI / 180, x = (b[1] - a[1]) * rad * Math.cos((a[0] + b[0]) * rad / 2), y = (b[0] - a[0]) * rad; return 6371 * Math.sqrt(x*x + y*y); }
 function routePosition(route, point) { let nearest = { index:-1, distance:Infinity }; route.forEach((routePoint, index) => { const distance = distanceKm(routePoint, point); if (distance < nearest.distance) nearest = { index, distance }; }); return nearest.distance <= 1 ? nearest.index : -1; }
@@ -116,8 +116,15 @@ function matchesRoute(pool, from, to) {
 }
 function renderPools() {
   const from = $('#from').value.trim(), to = $('#to').value.trim(), matches = pools.filter(pool => matchesRoute(pool, from, to));
-  $('#poolCount').textContent = `${matches.length} matching pool${matches.length === 1 ? '' : 's'}`; $('#noPools').style.display = matches.length ? 'none' : 'block';
-  $('#poolList').innerHTML = matches.map(pool => `<article class="pool"><div><h3>${escapeHTML(pool.host)}'s pool</h3><div class="pool-info"><span><strong>${escapeHTML(routeFor(pool).join(' → '))}</strong></span><span>${formatTime(pool.time)}</span><span>${pool.seats} seat${pool.seats === 1 ? '' : 's'} left</span></div></div><button class="join" data-id="${pool.id}" ${pool.seats < 1 ? 'disabled' : ''}>${pool.seats < 1 ? 'Full' : 'Join pool'}</button></article>`).join('');
+  $('#poolCount').textContent = `${matches.length} matching pool${matches.length === 1 ? '' : 's'}`;
+  $('#noPools').style.display = matches.length ? 'none' : 'block';
+  $('#poolList').innerHTML = matches.map(pool => {
+    const routeLabel = escapeHTML(routeFor(pool).join(' → '));
+    const vehicleLabel = pool.vehicleType && pool.vehicleType !== 'Any' ? `<span>Vehicle: ${escapeHTML(pool.vehicleType)}</span>` : '';
+    const genderLabel = pool.gender && pool.gender !== 'Any' ? `<span>Gender: ${escapeHTML(pool.gender)}</span>` : '';
+    const routeMatch = pickupPoint && dropoffPoint && mapRouteMatch(pool) ? '<span class="pool-match">Route is within 1 km of your trip</span>' : '';
+    return `<article class="pool"><div><h3>${escapeHTML(pool.host)}'s pool</h3><div class="pool-info"><span><strong>${routeLabel}</strong></span><span>${formatTime(pool.time)}</span><span>${pool.seats} seat${pool.seats === 1 ? '' : 's'} left</span>${vehicleLabel}${genderLabel}${routeMatch}</div></div><button class="join" data-id="${pool.id}" ${pool.seats < 1 ? 'disabled' : ''}>${pool.seats < 1 ? 'Full' : 'Join pool'}</button></article>`;
+  }).join('');
   document.querySelectorAll('.join').forEach(button => button.addEventListener('click', () => joinPool(button.dataset.id)));
 }
 async function api(path, options) { if (location.protocol === 'file:') throw new Error('Static demo'); const response = await fetch(path, options); if (!response.ok) throw new Error('Server unavailable'); return response.json(); }
@@ -163,5 +170,28 @@ function initialiseMap() {
   attachAutocomplete('#poolTo', '#poolToSuggestions');
 }
 $('#searchForm').addEventListener('submit', event => { event.preventDefault(); search(); });
-$('#poolForm').addEventListener('submit', async event => { event.preventDefault(); const stops = $('#poolStops').value.split(',').map(stop => stop.trim()).filter(Boolean); const pool = { host: $('#hostName').value.trim(), from: $('#poolFrom').value.trim(), to: $('#poolTo').value.trim(), stops, time: $('#poolTime').value, seats: Number($('#seats').value), route: selectedRoute }; try { const created = await api('/api/pools', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(pool) }); pools.push(created); } catch { pools.push({ ...pool, id:`local-${Date.now()}` }); } event.target.reset(); $('#status').textContent = 'Your scheduled pool is ready for people to join.'; renderPools(); });
+$('#poolForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const stops = $('#poolStops').value.split(',').map(stop => stop.trim()).filter(Boolean);
+  const pool = {
+    host: $('#hostName').value.trim(),
+    vehicleType: $('#vehicleType').value || 'Any',
+    gender: $('#genderPreference').value || 'Any',
+    from: $('#poolFrom').value.trim(),
+    to: $('#poolTo').value.trim(),
+    stops,
+    time: $('#poolTime').value,
+    seats: Number($('#seats').value),
+    route: selectedRoute
+  };
+  try {
+    const created = await api('/api/pools', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(pool) });
+    pools.push(created);
+  } catch {
+    pools.push({ ...pool, id:`local-${Date.now()}` });
+  }
+  event.target.reset();
+  $('#status').textContent = 'Your scheduled pool is ready for people to join.';
+  renderPools();
+});
 const firstAvailableTime = futureDefault(); $('#scheduledAt').min = firstAvailableTime; $('#poolTime').min = firstAvailableTime; $('#scheduledAt').value = firstAvailableTime; initialiseMap(); search();

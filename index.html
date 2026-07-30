@@ -64,6 +64,8 @@
         <form id="poolForm" class="pool-form">
           <label>Your name<input id="hostName" required placeholder="e.g. Aisha"></label>
           <label>Seats available<input id="seats" type="number" min="1" max="6" value="3" required></label>
+          <label>Preferred vehicle<select id="vehicleType"><option value="Any">Any</option><option value="Auto">Auto</option><option value="Hatchback">Hatchback</option><option value="Sedan">Sedan</option><option value="SUV">SUV</option></select></label>
+          <label>Pool gender<select id="genderPreference"><option value="Any">Any</option><option value="Only girls">Only girls</option><option value="Only boys">Only boys</option></select></label>
           <div class="autocomplete">
             <label>From<input id="poolFrom" required placeholder="Pickup location"></label>
             <div id="poolFromSuggestions" class="suggestions" aria-live="polite"></div>

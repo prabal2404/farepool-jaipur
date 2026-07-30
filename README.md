@@ -57,6 +57,7 @@ When you obtain approved API access, add the keys to a new `.env` file based on 
 - The lowest fare is highlighted.
 - Links open each provider’s official website.
 - People can create a pool with a route, optional via-stops, scheduled departure time, and seats.
-- People can join only when their pickup and drop point are on the pool route in the correct order. For example, a pool from Koramangala → Domlur → Indiranagar can accept Koramangala → Domlur passengers.
+- Pool creators can also choose a preferred vehicle type (Auto, Hatchback, Sedan, SUV, or Any) and a gender preference (Any, Only girls, Only boys).
+- People can join only when their pickup and drop point are on the pool route in the correct order, and the match is shown when the trip is within about 1 km of the route.
 - People can join a pool; the available seat count reduces.
 - With Node.js installed, pool data is saved by the backend.

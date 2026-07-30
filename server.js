@@ -147,7 +147,30 @@ http.createServer(async (req, res) => {
       return send(res, 200, { fares, notice: 'Live fare estimates are shown where available. Add approved provider API credentials for full real-time results.' });
     }
     if (req.method === 'GET' && url.pathname === '/api/pools') return send(res, 200, readPools());
-    if (req.method === 'POST' && url.pathname === '/api/pools') { const pool = await body(req); const stops = Array.isArray(pool.stops) ? pool.stops.filter(stop => typeof stop === 'string' && stop.trim()).slice(0, 6) : []; const route = Array.isArray(pool.route) ? pool.route.filter(point => Array.isArray(point) && point.length === 2 && point.every(value => Number.isFinite(value))).slice(0, 500) : []; if (!pool.host || !pool.from || !pool.to || !pool.time || !Number.isInteger(pool.seats) || pool.seats < 1 || pool.seats > 6 || Number.isNaN(new Date(pool.time).getTime()) || new Date(pool.time) <= new Date()) return send(res, 400, { error: 'Please provide a future time, name, route, and 1–6 seats.' }); const pools = readPools(); const created = { id: `pool-${Date.now()}`, host: pool.host.trim(), from: pool.from.trim(), to: pool.to.trim(), stops, route, time: pool.time, seats: pool.seats }; pools.push(created); savePools(pools); return send(res, 201, created); }
+    if (req.method === 'POST' && url.pathname === '/api/pools') {
+      const pool = await body(req);
+      const stops = Array.isArray(pool.stops) ? pool.stops.filter(stop => typeof stop === 'string' && stop.trim()).slice(0, 6) : [];
+      const route = Array.isArray(pool.route) ? pool.route.filter(point => Array.isArray(point) && point.length === 2 && point.every(value => Number.isFinite(value))).slice(0, 500) : [];
+      const vehicleType = ['Any', 'Auto', 'Hatchback', 'Sedan', 'SUV'].includes(pool.vehicleType) ? pool.vehicleType : 'Any';
+      const gender = ['Any', 'Only girls', 'Only boys'].includes(pool.gender) ? pool.gender : 'Any';
+      if (!pool.host || !pool.from || !pool.to || !pool.time || !Number.isInteger(pool.seats) || pool.seats < 1 || pool.seats > 6 || Number.isNaN(new Date(pool.time).getTime()) || new Date(pool.time) <= new Date()) return send(res, 400, { error: 'Please provide a future time, name, route, and 1–6 seats.' });
+      const pools = readPools();
+      const created = {
+        id: `pool-${Date.now()}`,
+        host: pool.host.trim(),
+        vehicleType,
+        gender,
+        from: pool.from.trim(),
+        to: pool.to.trim(),
+        stops,
+        route,
+        time: pool.time,
+        seats: pool.seats
+      };
+      pools.push(created);
+      savePools(pools);
+      return send(res, 201, created);
+    }
     const join = url.pathname.match(/^\/api\/pools\/([^/]+)\/join$/);
     if (req.method === 'POST' && join) { const pools = readPools(); const pool = pools.find(item => item.id === join[1]); if (!pool) return send(res, 404, { error: 'Pool not found.' }); if (pool.seats < 1) return send(res, 409, { error: 'This pool is full.' }); pool.seats -= 1; savePools(pools); return send(res, 200, pool); }
     const requestPath = url.pathname === '/' ? '/index.html' : url.pathname;
