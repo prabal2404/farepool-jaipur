@@ -20,8 +20,14 @@
 
     <section class="panel search-panel" aria-label="Search fares">
       <form id="searchForm" class="search-grid">
-        <label>From<input id="from" required value="Mansarovar" placeholder="Pickup location"></label>
-        <label>To<input id="to" required value="Jaipur Junction" placeholder="Drop location"></label>
+        <div class="autocomplete">
+          <label>From<input id="from" required value="Mansarovar" placeholder="Pickup location"></label>
+          <div id="fromSuggestions" class="suggestions" aria-live="polite"></div>
+        </div>
+        <div class="autocomplete">
+          <label>To<input id="to" required value="Jaipur Junction" placeholder="Drop location"></label>
+          <div id="toSuggestions" class="suggestions" aria-live="polite"></div>
+        </div>
         <label>Scheduled departure<input id="scheduledAt" type="datetime-local" required></label>
         <button class="primary" type="submit">Compare fares</button>
       </form>
@@ -34,6 +40,7 @@
       <div class="map-controls" aria-label="Map controls">
         <button class="map-action active" type="button" data-map-mode="pickup">1. Pin pickup</button>
         <button class="map-action" type="button" data-map-mode="dropoff">2. Pin drop point</button>
+        <button class="map-action secondary" type="button" id="locateMe">Use current location</button>
         <span id="mapHint" class="map-hint">Click the map to place your pickup.</span>
       </div>
       <div id="map" role="application" aria-label="Jaipur route map"></div>
@@ -57,8 +64,14 @@
         <form id="poolForm" class="pool-form">
           <label>Your name<input id="hostName" required placeholder="e.g. Aisha"></label>
           <label>Seats available<input id="seats" type="number" min="1" max="6" value="3" required></label>
-          <label>From<input id="poolFrom" required placeholder="Pickup location"></label>
-          <label>To<input id="poolTo" required placeholder="Drop location"></label>
+          <div class="autocomplete">
+            <label>From<input id="poolFrom" required placeholder="Pickup location"></label>
+            <div id="poolFromSuggestions" class="suggestions" aria-live="polite"></div>
+          </div>
+          <div class="autocomplete">
+            <label>To<input id="poolTo" required placeholder="Drop location"></label>
+            <div id="poolToSuggestions" class="suggestions" aria-live="polite"></div>
+          </div>
           <label class="stop-field">Places passed on the way (optional)<input id="poolStops" placeholder="e.g. Domlur, MG Road"></label>
           <label>Departure time<input id="poolTime" type="datetime-local" required></label>
           <button class="primary" type="submit">Create pool</button>

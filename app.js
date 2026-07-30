@@ -12,7 +12,92 @@ const futureDefault = () => { const d = new Date(Date.now() + 60 * 60 * 1000); d
 const normalize = (place) => place.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
 const routeFor = (pool) => [pool.from, ...(pool.stops || []), pool.to];
 const escapeHTML = (value) => String(value).replace(/[&<>'"]/g, char => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[char]));
+const debounce = (fn, delay = 300) => {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delay);
+  };
+};
 
+async function geocode(query) {
+  if (!query || query.length < 3) return [];
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(query)}&addressdetails=1&limit=6&countrycodes=in`;
+    const response = await fetch(url, { headers: { 'Accept-Language': 'en' } });
+    const results = await response.json();
+    return Array.isArray(results) ? results.map(item => ({
+      label: item.display_name,
+      point: [parseFloat(item.lat), parseFloat(item.lon)]
+    })) : [];
+  } catch {
+    return [];
+  }
+}
+
+function clearSuggestions(container) {
+  container.innerHTML = '';
+  container.style.display = 'none';
+}
+
+function showSuggestions(container, items, onSelect) {
+  container.innerHTML = '';
+  if (!items.length) {
+    clearSuggestions(container);
+    return;
+  }
+  for (const item of items) {
+    const row = document.createElement('div');
+    row.className = 'suggestion';
+    row.tabIndex = 0;
+    row.textContent = item.label;
+    row.addEventListener('click', () => onSelect(item));
+    row.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        onSelect(item);
+      }
+    });
+    container.appendChild(row);
+  }
+  container.style.display = 'block';
+}
+
+function attachAutocomplete(fieldId, containerId, onSelect) {
+  const field = $(fieldId);
+  const container = $(containerId);
+  if (!field || !container) return;
+
+  const update = debounce(async () => {
+    const query = field.value.trim();
+    if (!query) { clearSuggestions(container); return; }
+    const items = await geocode(query);
+    showSuggestions(container, items, item => {
+      field.value = item.label;
+      clearSuggestions(container);
+      if (typeof onSelect === 'function') onSelect(item);
+    });
+  }, 250);
+
+  field.addEventListener('input', update);
+  field.addEventListener('focus', update);
+  field.addEventListener('blur', () => setTimeout(() => clearSuggestions(container), 150));
+}
+
+async function useCurrentLocation() {
+  if (!navigator.geolocation) {
+    $('#status').textContent = 'Location access is not supported by this browser.';
+    return;
+  }
+
+  $('#status').textContent = 'Locating you…';
+  navigator.geolocation.getCurrentPosition(async ({ coords }) => {
+    $('#status').textContent = 'Current location found.';
+    placePin(activePin, { lat: coords.latitude, lng: coords.longitude });
+  }, (error) => {
+    $('#status').textContent = `Unable to access location: ${error.message}`;
+  }, { enableHighAccuracy: true, timeout: 10000 });
+}
 function demoFares(from, to, time) {
   const seed = [...`${from}${to}${time}`].reduce((sum, char) => sum + char.charCodeAt(0), 0), base = 115 + (seed % 40);
   return [{ provider: 'Ola', service: 'Auto', price: base - 18, bookingUrl: 'https://www.olacabs.com/' }, { provider: 'Uber', service: 'Hatchback / Go', price: base + 4, bookingUrl: 'https://www.uber.com/in/en/' }, { provider: 'Rapido', service: 'Auto', price: base - 12, bookingUrl: 'https://www.rapido.bike/' }, { provider: 'Ola', service: 'Sedan / Prime', price: base + 42, bookingUrl: 'https://www.olacabs.com/' }, { provider: 'Uber', service: 'SUV / XL', price: base + 82, bookingUrl: 'https://www.uber.com/in/en/' }];
@@ -67,7 +152,15 @@ async function placePin(mode, latlng) {
 }
 function initialiseMap() {
   if (!window.L) { $('#mapStatus').textContent = 'The map could not load. You can still create pools by typing route locations.'; return; }
-  map = L.map('map').setView(jaipur, 12); L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, attribution:'© OpenStreetMap contributors' }).addTo(map); map.on('click', event => placePin(activePin, event.latlng)); document.querySelectorAll('.map-action').forEach(button => button.addEventListener('click', () => setMode(button.dataset.mapMode)));
+  map = L.map('map').setView(jaipur, 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, attribution:'© OpenStreetMap contributors' }).addTo(map);
+  map.on('click', event => placePin(activePin, event.latlng));
+  document.querySelectorAll('.map-action').forEach(button => button.addEventListener('click', () => setMode(button.dataset.mapMode)));
+  $('#locateMe').addEventListener('click', useCurrentLocation);
+  attachAutocomplete('#from', '#fromSuggestions');
+  attachAutocomplete('#to', '#toSuggestions');
+  attachAutocomplete('#poolFrom', '#poolFromSuggestions');
+  attachAutocomplete('#poolTo', '#poolToSuggestions');
 }
 $('#searchForm').addEventListener('submit', event => { event.preventDefault(); search(); });
 $('#poolForm').addEventListener('submit', async event => { event.preventDefault(); const stops = $('#poolStops').value.split(',').map(stop => stop.trim()).filter(Boolean); const pool = { host: $('#hostName').value.trim(), from: $('#poolFrom').value.trim(), to: $('#poolTo').value.trim(), stops, time: $('#poolTime').value, seats: Number($('#seats').value), route: selectedRoute }; try { const created = await api('/api/pools', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(pool) }); pools.push(created); } catch { pools.push({ ...pool, id:`local-${Date.now()}` }); } event.target.reset(); $('#status').textContent = 'Your scheduled pool is ready for people to join.'; renderPools(); });
