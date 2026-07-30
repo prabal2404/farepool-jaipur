@@ -1,9 +1,8 @@
 :root{--left-width:360px}
 /* Layout overrides: two-column main content with left tiles */
-.main-grid{display:grid;grid-template-columns:var(--left-width) 1fr;gap:18px;margin-top:18px}
-.main-grid .left{display:flex;flex-direction:column;gap:12px}
-.main-grid .right{display:flex;flex-direction:column;gap:12px}
-.container{width:min(100% - 32px,1100px)}
+/* Single-column layout: map on top, pools and controls below */
+.main-grid{display:block;margin-top:18px}
+.container{width:min(100% - 32px,1200px)}
 
 /* Bigger brand/logo */
 .brand{font-size:1.6rem}
@@ -22,7 +21,11 @@
 .pools{order:1}
 
 /* Slightly narrower map and cards on right */
-.map-panel, #fareSection{max-width:100%}
+.map-panel{width:100%;}
+#map{height:560px}
+
+/* Add slightly more prominent borders to panels */
+.panel{border:2px solid var(--line)}
 
 @media(max-width:1100px){
   :root{--left-width:320px}

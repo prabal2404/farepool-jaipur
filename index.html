@@ -32,23 +32,7 @@
     </section>
 
     <div class="main-grid">
-      <section class="panel search-panel left" aria-label="Search fares">
-      <form id="searchForm" class="search-grid">
-        <div class="autocomplete">
-          <label>From<input id="from" required value="Mansarovar" placeholder="Pickup location"></label>
-          <div id="fromSuggestions" class="suggestions" aria-live="polite"></div>
-        </div>
-        <div class="autocomplete">
-          <label>To<input id="to" required value="Jaipur Junction" placeholder="Drop location"></label>
-          <div id="toSuggestions" class="suggestions" aria-live="polite"></div>
-        </div>
-        <label>Scheduled departure<input id="scheduledAt" type="datetime-local" required></label>
-        <button class="primary" type="submit">Compare fares</button>
-      </form>
-      <p class="helper">FarePool is for future, scheduled rides only. Select your planned departure time.</p>
-      </section>
-
-      <section class="panel map-panel right" aria-labelledby="mapHeading">
+      <section class="panel map-panel" aria-labelledby="mapHeading">
       <div><p class="eyebrow">JAIPUR ROUTE MAP</p><h2 id="mapHeading">Pin your scheduled journey</h2></div>
       <p class="helper">Choose a pickup point and drop point on the map. Pools are matched when both points fall along the host’s route in the right order.</p>
       <div class="map-controls" aria-label="Map controls">
@@ -62,39 +46,35 @@
       </section>
 
       <p id="status" class="status" aria-live="polite"></p>
-      <section id="fareSection" class="section right" aria-labelledby="fareHeading">
-      <div class="section-heading"><div><p class="eyebrow">SCHEDULED FARE RESULTS</p><h2 id="fareHeading">Auto and cab price estimates</h2></div><span id="routeLabel" class="route-label"></span></div>
-      <div id="fareCards" class="fare-grid"></div>
-      <div class="estimate-note">Prices are demo estimates in this version. Connect approved provider APIs to display live prices.</div>
-      </section>
 
-      <section class="section pools left" aria-labelledby="poolsHeading">
-      <div class="section-heading"><div><p class="eyebrow">SCHEDULED CARPOOL</p><h2 id="poolsHeading">People travelling your route</h2></div><span id="poolCount" class="route-label"></span></div>
-      <div id="poolList" class="pool-list"></div>
-      <p id="noPools" class="empty">No matching pools yet. Start one below and invite others to join.</p>
-
-      <details class="panel create-pool" open>
-        <summary>+ Start a scheduled pool</summary>
-        <form id="poolForm" class="pool-form">
-          <label>Your name<input id="hostName" required placeholder="e.g. Aisha"></label>
-          <label>Seats available<input id="seats" type="number" min="1" max="6" value="3" required></label>
-          <label>Preferred vehicle<select id="vehicleType"><option value="Any">Any</option><option value="Auto">Auto</option><option value="Hatchback">Hatchback</option><option value="Sedan">Sedan</option><option value="SUV">SUV</option></select></label>
-          <label>Pool gender<select id="genderPreference"><option value="Any">Any</option><option value="Only girls">Only girls</option><option value="Only boys">Only boys</option></select></label>
-          <div class="autocomplete">
-            <label>From<input id="poolFrom" required placeholder="Pickup location"></label>
-            <div id="poolFromSuggestions" class="suggestions" aria-live="polite"></div>
-          </div>
-          <div class="autocomplete">
-            <label>To<input id="poolTo" required placeholder="Drop location"></label>
-            <div id="poolToSuggestions" class="suggestions" aria-live="polite"></div>
-          </div>
-          <label class="stop-field">Places passed on the way (optional)<input id="poolStops" placeholder="e.g. Domlur, MG Road"></label>
-          <label>Departure time<input id="poolTime" type="datetime-local" required></label>
-          <button class="primary" type="submit">Create pool</button>
-        </form>
-      </details>
+      <section class="section pools" aria-labelledby="poolsHeading">
+        <div class="section-heading"><div><p class="eyebrow">SCHEDULED CARPOOL</p><h2 id="poolsHeading">People travelling your route</h2></div><span id="poolCount" class="route-label"></span></div>
+        <div id="poolList" class="pool-list"></div>
+        <p id="noPools" class="empty">No matching pools yet. Invite others to join.</p>
       </section>
     </div>
+    
+    <!-- Start a scheduled pool placed at bottom as requested -->
+    <details class="panel create-pool" open>
+      <summary>+ Start a scheduled pool</summary>
+      <form id="poolForm" class="pool-form">
+        <label>Your name<input id="hostName" required placeholder="e.g. Aisha"></label>
+        <label>Seats available<input id="seats" type="number" min="1" max="6" value="3" required></label>
+        <label>Preferred vehicle<select id="vehicleType"><option value="Any">Any</option><option value="Auto">Auto</option><option value="Hatchback">Hatchback</option><option value="Sedan">Sedan</option><option value="SUV">SUV</option></select></label>
+        <label>Pool gender<select id="genderPreference"><option value="Any">Any</option><option value="Only girls">Only girls</option><option value="Only boys">Only boys</option></select></label>
+        <div class="autocomplete">
+          <label>From<input id="poolFrom" required placeholder="Pickup location"></label>
+          <div id="poolFromSuggestions" class="suggestions" aria-live="polite"></div>
+        </div>
+        <div class="autocomplete">
+          <label>To<input id="poolTo" required placeholder="Drop location"></label>
+          <div id="poolToSuggestions" class="suggestions" aria-live="polite"></div>
+        </div>
+        <label class="stop-field">Places passed on the way (optional)<input id="poolStops" placeholder="e.g. Domlur, MG Road"></label>
+        <label>Departure time<input id="poolTime" type="datetime-local" required></label>
+        <button class="primary" type="submit">Create pool</button>
+      </form>
+    </details>
     <!-- Join pool modal -->
     <div id="joinModal" class="modal" aria-hidden="true">
       <div class="modal-content">
