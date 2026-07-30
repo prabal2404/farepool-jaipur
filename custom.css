@@ -37,3 +37,7 @@
 .header-actions a{display:inline-block;padding:8px 12px;border-radius:8px;text-decoration:none}
 .header-actions .primary{background:var(--brand);color:#fff}
 .header-actions .secondary{background:#eef2f4;color:var(--ink)}
+
+/* Logo + tagline group */
+.nav-left{display:flex;align-items:center;gap:12px}
+.nav-left .nav-note{margin-left:6px;color:var(--muted)}
