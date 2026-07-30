@@ -151,6 +151,55 @@ http.createServer(async (req, res) => {
       return send(res, 200, { fares, notice: 'Live fare estimates are shown where available. Add approved provider API credentials for full real-time results.' });
     }
     if (req.method === 'GET' && url.pathname === '/api/pools') return send(res, 200, readPools());
+    const checkPath = url.pathname.match(/^\/api\/pools\/([^/]+)\/check$/);
+    if (req.method === 'POST' && checkPath) {
+      const pools = readPools();
+      const pool = pools.find(item => item.id === checkPath[1]);
+      if (!pool) return send(res, 404, { ok: false, error: 'Pool not found.' });
+
+      let payload = {};
+      try { payload = await body(req); } catch { payload = {}; }
+
+      let pickupPoint = null;
+      let dropPoint = null;
+
+      if (payload && payload.pickup && typeof payload.pickup === 'object' && Number.isFinite(Number(payload.pickup.lat)) && Number.isFinite(Number(payload.pickup.lon))) {
+        pickupPoint = [Number(payload.pickup.lat), Number(payload.pickup.lon)];
+      } else if (payload && typeof payload.pickup === 'string' && payload.pickup.trim()) {
+        const g = await geocodePlace(payload.pickup.trim()); if (g) pickupPoint = [g.lat, g.lon];
+      }
+
+      if (payload && payload.drop && typeof payload.drop === 'object' && Number.isFinite(Number(payload.drop.lat)) && Number.isFinite(Number(payload.drop.lon))) {
+        dropPoint = [Number(payload.drop.lat), Number(payload.drop.lon)];
+      } else if (payload && typeof payload.drop === 'string' && payload.drop.trim()) {
+        const g2 = await geocodePlace(payload.drop.trim()); if (g2) dropPoint = [g2.lat, g2.lon];
+      }
+
+      if (!pickupPoint || !dropPoint) return send(res, 400, { ok: false, error: 'Please provide both pickup and drop locations.' });
+
+      // If pool has route coordinates, check against them
+      if (Array.isArray(pool.route) && pool.route.length >= 2) {
+        const start = routePosition(pool.route, pickupPoint);
+        const end = routePosition(pool.route, dropPoint);
+        if (start === -1 || end === -1) return send(res, 200, { ok: false, error: 'Pickup and drop must both lie on the pool route. You cannot join this pool because your route differs.' });
+        if (start >= end) return send(res, 200, { ok: false, error: 'Pickup must come before drop along the pool route. You cannot join this pool.' });
+        return send(res, 200, { ok: true, pickup: { lat: pickupPoint[0], lon: pickupPoint[1] }, drop: { lat: dropPoint[0], lon: dropPoint[1] } });
+      }
+
+      // Fallback: match by named stops/order if route coords are not available
+      const stops = [pool.from, ...(pool.stops || []), pool.to].map(s => String(s || '').trim().toLowerCase());
+      const pickupName = typeof payload.pickup === 'string' ? payload.pickup.trim().toLowerCase() : '';
+      const dropName = typeof payload.drop === 'string' ? payload.drop.trim().toLowerCase() : '';
+      if (pickupName && dropName) {
+        const pIndex = stops.indexOf(pickupName);
+        const dIndex = stops.indexOf(dropName);
+        if (pIndex === -1 || dIndex === -1) return send(res, 200, { ok: false, error: 'Pickup and drop must both match stops on the pool route. You cannot join this pool because your route differs.' });
+        if (pIndex >= dIndex) return send(res, 200, { ok: false, error: 'Pickup must come before drop in the pool route order. You cannot join this pool.' });
+        return send(res, 200, { ok: true, pickup: { name: pickupName }, drop: { name: dropName } });
+      }
+
+      return send(res, 400, { ok: false, error: 'Please provide both pickup and drop locations to check.' });
+    }
     if (req.method === 'POST' && url.pathname === '/api/pools') {
       const pool = await body(req);
       const stops = Array.isArray(pool.stops) ? pool.stops.filter(stop => typeof stop === 'string' && stop.trim()).slice(0, 6) : [];

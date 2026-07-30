@@ -187,6 +187,10 @@ document.getElementById('joinForm').addEventListener('submit', async (event) => 
   };
   $('#joinStatus').textContent = 'Checking route and joining…';
   try {
+    // First validate pickup/drop against pool route
+    const check = await api(`/api/pools/${joinTargetPoolId}/check`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (!check || !check.ok) { $('#joinStatus').textContent = (check && check.error) ? check.error : 'Pickup/drop do not match pool route.'; return; }
+
     const updated = await api(`/api/pools/${joinTargetPoolId}/join`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     pools = pools.map(pool => pool.id === joinTargetPoolId ? updated : pool);
     $('#joinStatus').textContent = 'Joined successfully.';
