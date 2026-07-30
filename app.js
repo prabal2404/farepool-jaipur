@@ -6,6 +6,7 @@ const demoPools = [
 ];
 let pools = [...demoPools], fares = [], map, pickupMarker, dropoffMarker, routeLine, activePin = 'pickup';
 let pickupPoint = null, dropoffPoint = null, selectedRoute = [];
+let currentUserProfile = null;
 const $ = (selector) => document.querySelector(selector);
 const formatTime = (value) => new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 const futureDefault = () => { const d = new Date(Date.now() + 60 * 60 * 1000); d.setMinutes(0, 0, 0); return d.toISOString().slice(0, 16); };
@@ -123,10 +124,33 @@ function renderPools() {
     const vehicleLabel = pool.vehicleType && pool.vehicleType !== 'Any' ? `<span>Vehicle: ${escapeHTML(pool.vehicleType)}</span>` : '';
     const genderLabel = pool.gender && pool.gender !== 'Any' ? `<span>Gender: ${escapeHTML(pool.gender)}</span>` : '';
     const routeMatch = pickupPoint && dropoffPoint && mapRouteMatch(pool) ? '<span class="pool-match">Route is within 1 km of your trip</span>' : '';
-    return `<article class="pool"><div><h3>${escapeHTML(pool.host)}'s pool</h3><div class="pool-info"><span><strong>${routeLabel}</strong></span><span>${formatTime(pool.time)}</span><span>${pool.seats} seat${pool.seats === 1 ? '' : 's'} left</span>${vehicleLabel}${genderLabel}${routeMatch}</div></div><button class="join" data-id="${pool.id}" ${pool.seats < 1 ? 'disabled' : ''}>${pool.seats < 1 ? 'Full' : 'Join pool'}</button></article>`;
+    const manageBtn = (pool.host_uuid && currentUserProfile && pool.host_uuid === currentUserProfile.uuid) ? `<button class="manage-requests" data-id="${pool.id}">Manage requests</button>` : '';
+    return `<article class="pool"><div><h3>${escapeHTML(pool.host)}'s pool</h3><div class="pool-info"><span><strong>${routeLabel}</strong></span><span>${formatTime(pool.time)}</span><span>${pool.seats} seat${pool.seats === 1 ? '' : 's'} left</span>${vehicleLabel}${genderLabel}${routeMatch}</div></div><button class="join" data-id="${pool.id}" ${pool.seats < 1 ? 'disabled' : ''}>${pool.seats < 1 ? 'Full' : 'Join pool'}</button>${manageBtn}</article>`;
   }).join('');
   document.querySelectorAll('.join').forEach(button => button.addEventListener('click', () => joinPool(button.dataset.id)));
+  // Add manage button handlers
+  document.querySelectorAll('.manage-requests').forEach(button => button.addEventListener('click', () => openManageRequests(button.dataset.id)));
 }
+
+async function openManageRequests(poolId) {
+  const container = $('#requestsList'); container.innerHTML = 'Loading…';
+  try {
+    const res = await fetch(`/api/pools/${poolId}/requests`); if (!res.ok) throw new Error('Unable to fetch'); const data = await res.json();
+    if (!data.requests || !data.requests.length) { container.innerHTML = '<p>No requests.</p>'; }
+    else {
+      container.innerHTML = data.requests.map(r => `<div class="request" id="req_${r.id}"><div><strong>${escapeHTML(r.requester.name || 'Guest')}</strong> — ${r.status}</div><div>Pickup: ${escapeHTML(typeof r.pickup === 'string' ? r.pickup : JSON.stringify(r.pickup || ''))}</div><div>Drop: ${escapeHTML(typeof r.drop === 'string' ? r.drop : JSON.stringify(r.drop || ''))}</div><div class="req-actions">${r.status === 'pending' ? `<button data-id="${r.id}" data-pool="${poolId}" class="accept">Accept</button><button data-id="${r.id}" data-pool="${poolId}" class="reject">Reject</button>` : ''}</div></div>`).join('');
+      container.querySelectorAll('.accept').forEach(btn => btn.addEventListener('click', async (e) => {
+        const id = btn.dataset.id, pool = btn.dataset.pool; btn.disabled = true; try { const a = await fetch(`/api/pools/${pool}/requests/${id}/accept`, { method:'POST' }); const body = await a.json(); if (a.ok) { document.getElementById(`req_${id}`).querySelector('div').innerHTML = 'Accepted'; } else { alert(body.error || 'Error'); btn.disabled = false; } } catch (err) { alert('Error'); btn.disabled = false; }
+      }));
+      container.querySelectorAll('.reject').forEach(btn => btn.addEventListener('click', async (e) => {
+        const id = btn.dataset.id, pool = btn.dataset.pool; btn.disabled = true; try { const a = await fetch(`/api/pools/${pool}/requests/${id}/reject`, { method:'POST' }); const body = await a.json(); if (a.ok) { document.getElementById(`req_${id}`).querySelector('div').innerHTML = 'Rejected'; } else { alert(body.error || 'Error'); btn.disabled = false; } } catch (err) { alert('Error'); btn.disabled = false; }
+      }));
+    }
+  } catch (err) { container.innerHTML = '<p>Unable to load requests.</p>'; }
+  const modal = document.getElementById('manageModal'); if (modal) modal.setAttribute('aria-hidden', 'false');
+}
+
+document.getElementById('manageClose').addEventListener('click', () => { const m = document.getElementById('manageModal'); if (m) m.setAttribute('aria-hidden', 'true'); });
 async function api(path, options) { if (location.protocol === 'file:') throw new Error('Static demo'); const response = await fetch(path, options); if (!response.ok) throw new Error('Server unavailable'); return response.json(); }
 async function search() {
   const from = $('#from').value.trim(), to = $('#to').value.trim(), at = $('#scheduledAt').value;
@@ -145,12 +169,15 @@ async function search() {
   try {
     const me = await fetch('/api/me').then(r => r.json()).catch(() => null);
     if (me && me.connected) {
+      currentUserProfile = me.profile || null;
       const u = await fetch(`/api/uber/estimate?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`).then(r => r.json()).catch(() => null);
       if (u && Array.isArray(u.fares) && u.fares.length) {
         fares = [...u.fares.filter(f => f.provider === 'Uber'), ...fares.filter(f => f.provider !== 'Uber')];
       }
       const link = document.querySelector('div[style] a[href="/oauth/uber/start"]');
       if (link) link.textContent = me.profile && (me.profile.first_name || me.profile.last_name) ? `Connected: ${me.profile.first_name || ''}` : 'Connected to Uber';
+    } else {
+      currentUserProfile = null;
     }
   } catch {}
 
@@ -219,10 +246,14 @@ document.getElementById('joinForm').addEventListener('submit', async (event) => 
     const check = await api(`/api/pools/${joinTargetPoolId}/check`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     if (!check || !check.ok) { $('#joinStatus').textContent = (check && check.error) ? check.error : 'Pickup/drop do not match pool route.'; return; }
 
-    const updated = await api(`/api/pools/${joinTargetPoolId}/join`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    pools = pools.map(pool => pool.id === joinTargetPoolId ? updated : pool);
-    $('#joinStatus').textContent = 'Joined successfully.';
-    setTimeout(() => closeJoinModal(), 800);
+    // Create a join request instead of immediate join
+    const created = await api(`/api/pools/${joinTargetPoolId}/request`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (created && created.ok) {
+      $('#joinStatus').textContent = 'Request sent — waiting for host approval.';
+      setTimeout(() => closeJoinModal(), 1200);
+    } else {
+      $('#joinStatus').textContent = (created && created.error) ? created.error : 'Unable to send request.';
+    }
   } catch (err) {
     try { const res = await fetch(`/api/pools/${joinTargetPoolId}/join`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); const body = await res.json(); $('#joinStatus').textContent = body && body.error ? body.error : 'Unable to join pool.'; } catch { $('#joinStatus').textContent = 'Unable to join pool.'; }
   }

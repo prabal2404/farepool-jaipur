@@ -317,8 +317,15 @@ http.createServer(async (req, res) => {
         stops,
         route,
         time: pool.time,
-        seats: pool.seats
+        seats: pool.seats,
+        requests: []
       };
+      // Attach host session UUID if available
+      try {
+        const cookies = parseCookies(req); const session = cookies.fp_session; if (session) {
+          const users = readUberUsers(); const entry = users[session]; if (entry && entry.profile && entry.profile.uuid) created.host_uuid = entry.profile.uuid;
+        }
+      } catch (_) {}
       pools.push(created);
       savePools(pools);
       return send(res, 201, created);
@@ -375,6 +382,57 @@ http.createServer(async (req, res) => {
       pool.seats -= 1;
       savePools(pools);
       return send(res, 200, pool);
+    }
+
+    // Create a join request (pending) instead of instantly joining
+    const requestMatch = url.pathname.match(/^\/api\/pools\/([^/]+)\/request$/);
+    if (req.method === 'POST' && requestMatch) {
+      const pools = readPools(); const pool = pools.find(p => p.id === requestMatch[1]);
+      if (!pool) return send(res, 404, { error: 'Pool not found.' });
+      let payload = {};
+      try { payload = await body(req); } catch { payload = {}; }
+      if (!payload || (!payload.pickup && !payload.drop)) return send(res, 400, { error: 'Provide pickup and drop' });
+      const cookies = parseCookies(req); const session = cookies.fp_session; const users = readUberUsers(); const requester = (session && users[session] && users[session].profile) ? users[session].profile : { first_name: payload.name || 'Guest' };
+      const reqId = `r_${Date.now().toString(36)}_${Math.floor(Math.random()*9000+1000)}`;
+      const newReq = { id: reqId, requester: { name: `${requester.first_name || ''} ${requester.last_name || ''}`.trim(), uuid: requester.uuid || null }, pickup: payload.pickup || null, drop: payload.drop || null, status: 'pending', created_at: Date.now() };
+      pool.requests = Array.isArray(pool.requests) ? pool.requests : [];
+      pool.requests.push(newReq);
+      savePools(pools);
+      return send(res, 201, { ok: true, request: newReq });
+    }
+
+    // List requests for a pool (only accessible to pool host)
+    const requestsList = url.pathname.match(/^\/api\/pools\/([^/]+)\/requests$/);
+    if (req.method === 'GET' && requestsList) {
+      const pools = readPools(); const pool = pools.find(p => p.id === requestsList[1]); if (!pool) return send(res, 404, { error: 'Pool not found.' });
+      const cookies = parseCookies(req); const session = cookies.fp_session; const users = readUberUsers(); const entry = session && users[session] ? users[session] : null;
+      if (!pool.host_uuid || !entry || !entry.profile || pool.host_uuid !== entry.profile.uuid) return send(res, 403, { error: 'Only pool host may view requests.' });
+      return send(res, 200, { requests: pool.requests || [] });
+    }
+
+    // Accept a request (only host)
+    const acceptPath = url.pathname.match(/^\/api\/pools\/([^/]+)\/requests\/([^/]+)\/accept$/);
+    if (req.method === 'POST' && acceptPath) {
+      const [ , poolId, reqId ] = acceptPath; const pools = readPools(); const pool = pools.find(p => p.id === poolId); if (!pool) return send(res, 404, { error: 'Pool not found.' });
+      const cookies = parseCookies(req); const session = cookies.fp_session; const users = readUberUsers(); const entry = session && users[session] ? users[session] : null;
+      if (!pool.host_uuid || !entry || !entry.profile || pool.host_uuid !== entry.profile.uuid) return send(res, 403, { error: 'Only pool host may accept requests.' });
+      pool.requests = Array.isArray(pool.requests) ? pool.requests : [];
+      const r = pool.requests.find(x => x.id === reqId); if (!r) return send(res, 404, { error: 'Request not found.' });
+      if (r.status !== 'pending') return send(res, 400, { error: 'Request already processed.' });
+      if (pool.seats < 1) { r.status = 'rejected'; savePools(pools); return send(res, 409, { error: 'Pool is full.' }); }
+      r.status = 'accepted'; r.processed_at = Date.now(); pool.seats -= 1; savePools(pools); return send(res, 200, { ok: true, request: r, pool });
+    }
+
+    // Reject a request (only host)
+    const rejectPath = url.pathname.match(/^\/api\/pools\/([^/]+)\/requests\/([^/]+)\/reject$/);
+    if (req.method === 'POST' && rejectPath) {
+      const [ , poolId, reqId ] = rejectPath; const pools = readPools(); const pool = pools.find(p => p.id === poolId); if (!pool) return send(res, 404, { error: 'Pool not found.' });
+      const cookies = parseCookies(req); const session = cookies.fp_session; const users = readUberUsers(); const entry = session && users[session] ? users[session] : null;
+      if (!pool.host_uuid || !entry || !entry.profile || pool.host_uuid !== entry.profile.uuid) return send(res, 403, { error: 'Only pool host may reject requests.' });
+      pool.requests = Array.isArray(pool.requests) ? pool.requests : [];
+      const r = pool.requests.find(x => x.id === reqId); if (!r) return send(res, 404, { error: 'Request not found.' });
+      if (r.status !== 'pending') return send(res, 400, { error: 'Request already processed.' });
+      r.status = 'rejected'; r.processed_at = Date.now(); savePools(pools); return send(res, 200, { ok: true, request: r });
     }
     const requestPath = url.pathname === '/' ? '/index.html' : url.pathname;
     const filePath = path.resolve(root, `.${requestPath}`);

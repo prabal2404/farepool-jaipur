@@ -104,6 +104,14 @@
         <p id="joinStatus" class="status" aria-live="polite"></p>
       </div>
     </div>
+      <!-- Manage requests modal -->
+      <div id="manageModal" class="modal" aria-hidden="true">
+        <div class="modal-content">
+          <h3>Manage requests</h3>
+          <div id="requestsList"></div>
+          <div class="modal-actions"><button type="button" id="manageClose">Close</button></div>
+        </div>
+      </div>
   </main>
   <footer>FarePool demo · Never share payment details or personal addresses in a public pool.</footer>
   <div style="position:fixed;right:16px;bottom:16px;z-index:1000"><a href="/oauth/uber/start" class="secondary">Connect Uber</a></div>
