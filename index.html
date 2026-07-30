@@ -6,6 +6,7 @@
   <title>FarePool | Compare and share rides</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="join-modal.css">
 </head>
 <body>
   <header class="header">
@@ -80,6 +81,29 @@
         </form>
       </details>
     </section>
+    <!-- Join pool modal -->
+    <div id="joinModal" class="modal" aria-hidden="true">
+      <div class="modal-content">
+        <h3>Join pool</h3>
+        <p id="joinPoolLabel" class="helper"></p>
+        <form id="joinForm">
+          <div class="autocomplete">
+            <label>Pickup<input id="joinPickup" required placeholder="Enter pickup or use current location"></label>
+            <div id="joinPickupSuggestions" class="suggestions" aria-live="polite"></div>
+          </div>
+          <div class="autocomplete">
+            <label>Drop<input id="joinDrop" required placeholder="Enter drop location"></label>
+            <div id="joinDropSuggestions" class="suggestions" aria-live="polite"></div>
+          </div>
+          <div class="modal-actions">
+            <button type="button" id="joinUseCurrent" class="secondary">Use current location for pickup</button>
+            <button class="primary" type="submit">Confirm join</button>
+            <button type="button" id="joinCancel">Cancel</button>
+          </div>
+        </form>
+        <p id="joinStatus" class="status" aria-live="polite"></p>
+      </div>
+    </div>
   </main>
   <footer>FarePool demo · Never share payment details or personal addresses in a public pool.</footer>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

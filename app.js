@@ -135,7 +135,67 @@ async function search() {
   catch { fares = demoFares(from, to, at); $('#status').textContent = 'Showing built-in demo data. Run the backend for saved pool bookings.'; }
   renderFares(); renderPools();
 }
-async function joinPool(id) { try { const updated = await api(`/api/pools/${id}/join`, { method: 'POST' }); pools = pools.map(pool => pool.id === id ? updated : pool); } catch { pools = pools.map(pool => pool.id === id ? { ...pool, seats: Math.max(0, pool.seats - 1) } : pool); } renderPools(); }
+let joinTargetPoolId = null;
+let joinPickupCoords = null;
+let joinDropCoords = null;
+
+async function joinPool(id) {
+  // Open join modal to collect pickup/drop
+  joinTargetPoolId = id;
+  const pool = pools.find(p => p.id === id) || { from: '', to: '' };
+  $('#joinPoolLabel').textContent = `${pool.host || 'Host'} — ${routeFor(pool).join(' → ')}`;
+  $('#joinPickup').value = $('#from').value || pool.from || '';
+  $('#joinDrop').value = $('#to').value || pool.to || '';
+  joinPickupCoords = null; joinDropCoords = null;
+  const modal = document.getElementById('joinModal'); if (modal) modal.setAttribute('aria-hidden', 'false');
+}
+
+function closeJoinModal() {
+  const modal = document.getElementById('joinModal'); if (modal) modal.setAttribute('aria-hidden', 'true');
+  $('#joinStatus').textContent = '';
+  joinTargetPoolId = null; joinPickupCoords = null; joinDropCoords = null;
+}
+
+// Modal event handlers
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.matches && e.target.matches('#joinCancel')) { e.preventDefault(); closeJoinModal(); }
+});
+
+document.getElementById('joinUseCurrent').addEventListener('click', async () => {
+  if (!navigator.geolocation) { $('#joinStatus').textContent = 'Location access not supported.'; return; }
+  $('#joinStatus').textContent = 'Locating…';
+  navigator.geolocation.getCurrentPosition(async ({ coords }) => {
+    const name = await reverseName([coords.latitude, coords.longitude]);
+    $('#joinPickup').value = name;
+    joinPickupCoords = { lat: coords.latitude, lon: coords.longitude };
+    $('#joinStatus').textContent = 'Pickup set to current location.';
+  }, (err) => { $('#joinStatus').textContent = `Unable to access location: ${err.message}`; }, { enableHighAccuracy: true, timeout: 10000 });
+});
+
+attachAutocomplete('#joinPickup', '#joinPickupSuggestions', (item) => { $('#joinPickup').value = item.label; joinPickupCoords = { lat: item.point[0], lon: item.point[1] }; });
+attachAutocomplete('#joinDrop', '#joinDropSuggestions', (item) => { $('#joinDrop').value = item.label; joinDropCoords = { lat: item.point[0], lon: item.point[1] }; });
+
+document.getElementById('joinForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!joinTargetPoolId) return $('#joinStatus').textContent = 'No pool selected.';
+  const pickupVal = $('#joinPickup').value.trim();
+  const dropVal = $('#joinDrop').value.trim();
+  if (!pickupVal || !dropVal) { $('#joinStatus').textContent = 'Enter pickup and drop locations.'; return; }
+  const payload = {
+    pickup: joinPickupCoords ? { lat: joinPickupCoords.lat, lon: joinPickupCoords.lon } : pickupVal,
+    drop: joinDropCoords ? { lat: joinDropCoords.lat, lon: joinDropCoords.lon } : dropVal
+  };
+  $('#joinStatus').textContent = 'Checking route and joining…';
+  try {
+    const updated = await api(`/api/pools/${joinTargetPoolId}/join`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    pools = pools.map(pool => pool.id === joinTargetPoolId ? updated : pool);
+    $('#joinStatus').textContent = 'Joined successfully.';
+    setTimeout(() => closeJoinModal(), 800);
+  } catch (err) {
+    try { const res = await fetch(`/api/pools/${joinTargetPoolId}/join`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); const body = await res.json(); $('#joinStatus').textContent = body && body.error ? body.error : 'Unable to join pool.'; } catch { $('#joinStatus').textContent = 'Unable to join pool.'; }
+  }
+  renderPools();
+});
 
 function setMode(mode) { activePin = mode; document.querySelectorAll('.map-action').forEach(button => button.classList.toggle('active', button.dataset.mapMode === mode)); $('#mapHint').textContent = mode === 'pickup' ? 'Click the map to place your pickup.' : 'Click the map to place your drop point.'; }
 async function reverseName(point) { try { const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${point[0]}&lon=${point[1]}&zoom=16`); const data = await response.json(); return (data.display_name || '').split(',').slice(0, 2).join(', ') || `${point[0].toFixed(5)}, ${point[1].toFixed(5)}`; } catch { return `${point[0].toFixed(5)}, ${point[1].toFixed(5)}`; } }

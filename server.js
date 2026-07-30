@@ -53,6 +53,10 @@ function parseEstimate(estimate) {
   return Number(match[0]);
 }
 
+function distanceKm(a, b) { const rad = Math.PI / 180; const x = (b[1] - a[1]) * rad * Math.cos((a[0] + b[0]) * rad / 2); const y = (b[0] - a[0]) * rad; return 6371 * Math.sqrt(x*x + y*y); }
+
+function routePosition(route, point) { let nearest = { index:-1, distance:Infinity }; route.forEach((routePoint, index) => { const distance = distanceKm(routePoint, point); if (distance < nearest.distance) nearest = { index, distance }; }); return nearest.distance <= 1 ? nearest.index : -1; }
+
 async function getUberFares(from, to) {
   const token = process.env.UBER_TOKEN || process.env.UBER_SERVER_TOKEN || process.env.UBER_API_KEY;
   if (!token) return [];
@@ -172,7 +176,56 @@ http.createServer(async (req, res) => {
       return send(res, 201, created);
     }
     const join = url.pathname.match(/^\/api\/pools\/([^/]+)\/join$/);
-    if (req.method === 'POST' && join) { const pools = readPools(); const pool = pools.find(item => item.id === join[1]); if (!pool) return send(res, 404, { error: 'Pool not found.' }); if (pool.seats < 1) return send(res, 409, { error: 'This pool is full.' }); pool.seats -= 1; savePools(pools); return send(res, 200, pool); }
+    if (req.method === 'POST' && join) {
+      const pools = readPools();
+      const pool = pools.find(item => item.id === join[1]);
+      if (!pool) return send(res, 404, { error: 'Pool not found.' });
+      if (pool.seats < 1) return send(res, 409, { error: 'This pool is full.' });
+
+      // Read optional pickup/drop from request body
+      let payload = {};
+      try { payload = await body(req); } catch { payload = {}; }
+
+      let pickupPoint = null;
+      let dropPoint = null;
+
+      if (payload && payload.pickup && typeof payload.pickup === 'object' && Number.isFinite(Number(payload.pickup.lat)) && Number.isFinite(Number(payload.pickup.lon))) {
+        pickupPoint = [Number(payload.pickup.lat), Number(payload.pickup.lon)];
+      } else if (payload && typeof payload.pickup === 'string' && payload.pickup.trim()) {
+        const g = await geocodePlace(payload.pickup.trim()); if (g) pickupPoint = [g.lat, g.lon];
+      }
+
+      if (payload && payload.drop && typeof payload.drop === 'object' && Number.isFinite(Number(payload.drop.lat)) && Number.isFinite(Number(payload.drop.lon))) {
+        dropPoint = [Number(payload.drop.lat), Number(payload.drop.lon)];
+      } else if (payload && typeof payload.drop === 'string' && payload.drop.trim()) {
+        const g2 = await geocodePlace(payload.drop.trim()); if (g2) dropPoint = [g2.lat, g2.lon];
+      }
+
+      // Validate pickup/drop are on the pool route in correct order when coordinates/route available
+      if (pickupPoint && dropPoint && Array.isArray(pool.route) && pool.route.length >= 2) {
+        const start = routePosition(pool.route, pickupPoint);
+        const end = routePosition(pool.route, dropPoint);
+        if (start === -1 || end === -1 || start >= end) return send(res, 400, { error: 'Pickup or drop point does not follow the pool route.' });
+      } else if (payload && (payload.pickup || payload.drop)) {
+        // Fallback: match by named stops/order if route coords are not available
+        const stops = [pool.from, ...(pool.stops || []), pool.to].map(s => String(s || '').trim().toLowerCase());
+        const pickupName = typeof payload.pickup === 'string' ? payload.pickup.trim().toLowerCase() : '';
+        const dropName = typeof payload.drop === 'string' ? payload.drop.trim().toLowerCase() : '';
+        if (pickupName && dropName) {
+          const pIndex = stops.indexOf(pickupName);
+          const dIndex = stops.indexOf(dropName);
+          if (pIndex === -1 || dIndex === -1 || pIndex >= dIndex) return send(res, 400, { error: 'Pickup or drop location is not on the pool route.' });
+        } else {
+          return send(res, 400, { error: 'Please provide pickup and drop locations for joining.' });
+        }
+      } else {
+        return send(res, 400, { error: 'Please provide pickup and drop locations for joining.' });
+      }
+
+      pool.seats -= 1;
+      savePools(pools);
+      return send(res, 200, pool);
+    }
     const requestPath = url.pathname === '/' ? '/index.html' : url.pathname;
     const filePath = path.resolve(root, `.${requestPath}`);
     if (!filePath.startsWith(root) || !fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) { res.writeHead(404); return res.end('Not found'); }

@@ -1,0 +1,8 @@
+.modal{position:fixed;inset:0;background:rgba(10,12,14,0.45);display:flex;align-items:center;justify-content:center;padding:20px}
+.modal[aria-hidden="true"]{display:none}
+.modal-content{width:100%;max-width:520px;background:#fff;border-radius:12px;padding:18px;border:1px solid #e3e8ec}
+.modal-actions{display:flex;gap:8px;align-items:center;margin-top:10px}
+.status{color:#657281;margin-top:8px}
+.suggestions{position:absolute;left:0;right:0;top:100%;z-index:10;background:#fff;border:1px solid #e3e8ec;border-top:0;border-radius:0 0 11px 11px;max-height:240px;overflow:auto;box-shadow:0 10px 20px rgba(23,34,45,.08);display:none}
+.suggestion{padding:10px 12px;cursor:pointer;color:#17222d;font-size:.95rem}
+.suggestion:hover{background:#f5f9f7}
