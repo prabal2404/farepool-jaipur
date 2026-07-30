@@ -45,6 +45,44 @@ async function geocodePlace(text) {
   return { lat: parseFloat(result[0].lat), lon: parseFloat(result[0].lon), address: result[0].display_name };
 }
 
+function parseEstimate(estimate) {
+  if (!estimate || typeof estimate !== 'string') return 0;
+  const cleaned = estimate.replace(/[,|\u0016]/g, '');
+  const match = cleaned.match(/\d+/g);
+  if (!match || !match.length) return 0;
+  return Number(match[0]);
+}
+
+async function getUberFares(from, to) {
+  const token = process.env.UBER_TOKEN || process.env.UBER_SERVER_TOKEN || process.env.UBER_API_KEY;
+  if (!token) return [];
+
+  const pickup = await geocodePlace(from);
+  const drop = await geocodePlace(to);
+  if (!pickup || !drop) return [];
+
+  const url = `https://api.uber.com/v1.2/estimates/price?start_latitude=${pickup.lat}&start_longitude=${pickup.lon}&end_latitude=${drop.lat}&end_longitude=${drop.lon}`;
+  const headers = {
+    Authorization: token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Bearer ${token}`,
+    'Accept-Language': 'en_US',
+    'User-Agent': 'FarePool/1.0',
+    Accept: 'application/json'
+  };
+
+  try {
+    const response = await fetchJson(url, { method: 'GET', headers });
+    if (!Array.isArray(response?.prices)) return [];
+    return response.prices.map((price) => ({
+      provider: 'Uber',
+      service: price.display_name || price.localized_display_name || 'Uber',
+      price: price.estimate ? parseEstimate(price.estimate) : (price.low_estimate ?? price.high_estimate ?? 0),
+      bookingUrl: 'https://www.uber.com/in/en/'
+    }));
+  } catch {
+    return [];
+  }
+}
+
 async function getRapidoFares(from, to) {
   const token = process.env.RAPIDO_TOKEN;
   const deviceId = process.env.RAPIDO_DEVICE_ID;
@@ -93,9 +131,11 @@ async function getRapidoFares(from, to) {
 async function makeFares(from, to, at) {
   const seed = [...`${from}${to}${at}`].reduce((sum, char) => sum + char.charCodeAt(0), 0);
   const base = 115 + (seed % 40);
-  const fares = [{ provider: 'Ola', service: 'Auto', price: base - 18, bookingUrl: 'https://www.olacabs.com/' }, { provider: 'Uber', service: 'Hatchback / Go', price: base + 4, bookingUrl: 'https://www.uber.com/in/en/' }, { provider: 'Ola', service: 'Sedan / Prime', price: base + 42, bookingUrl: 'https://www.olacabs.com/' }, { provider: 'Uber', service: 'SUV / XL', price: base + 82, bookingUrl: 'https://www.uber.com/in/en/' }];
-  const rapidoFares = await getRapidoFares(from, to);
-  return [...fares, ...rapidoFares];
+  const fallbackFares = [{ provider: 'Uber', service: 'Hatchback / Go', price: base + 4, bookingUrl: 'https://www.uber.com/in/en/' }, { provider: 'Rapido', service: 'Auto', price: base - 12, bookingUrl: 'https://www.rapido.bike/' }, { provider: 'Uber', service: 'SUV / XL', price: base + 82, bookingUrl: 'https://www.uber.com/in/en/' }];
+
+  const [uberFares, rapidoFares] = await Promise.all([getUberFares(from, to), getRapidoFares(from, to)]);
+  const fares = [...(uberFares.length ? uberFares : fallbackFares.filter(fare => fare.provider !== 'Uber')), ...rapidoFares];
+  return fares.length ? fares : fallbackFares;
 }
 function body(req) { return new Promise((resolve, reject) => { let text = ''; req.on('data', part => { text += part; if (text.length > 100000) req.destroy(); }); req.on('end', () => { try { resolve(JSON.parse(text || '{}')); } catch { reject(new Error('Invalid JSON')); } }); }); }
 

@@ -2,7 +2,7 @@
 
 Pooling services for Jaipur.
 
-FarePool compares scheduled ride estimates from **Ola**, **Uber**, and **Rapido**, then lets people schedule a shared cab on the same route. It is intentionally for **scheduled pooling only**, not instant/live pooling.
+FarePool compares scheduled ride estimates from **Uber** and **Rapido**, then lets people schedule a shared cab on the same route. It is intentionally for **scheduled pooling only**, not instant/live pooling.
 
 ## Project files
 
@@ -45,7 +45,7 @@ In visual-demo mode, a refresh removes pools that you created. The sample pools 
 
 The full version saves every pool you create into `data/pools.json`.
 
-## Live prices from Ola, Uber and Rapido
+## Live prices from Uber and Rapido
 
 This project currently shows clearly marked **demo estimates**, not live prices. Real-time fares require official, approved API access from each provider, with credentials issued to your business. Publicly scraping the ride apps is unreliable and can violate their rules.
 
@@ -53,7 +53,7 @@ When you obtain approved API access, add the keys to a new `.env` file based on 
 
 ## What works today
 
-- Fare comparison cards for Auto, Hatchback, Sedan, and SUV options from Ola, Uber and Rapido.
+- Fare comparison cards for Hatchback, Sedan, and SUV options from Uber and Rapido.
 - The lowest fare is highlighted.
 - Links open each provider’s official website.
 - People can create a pool with a route, optional via-stops, scheduled departure time, and seats.
