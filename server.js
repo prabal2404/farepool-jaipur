@@ -72,52 +72,7 @@ async function getUberFares(from, to) {
     'User-Agent': 'FarePool/1.0',
     Accept: 'application/json'
   };
-
   try {
-    // OAuth start: redirect to Uber authorize URL
-    if (url.pathname === '/oauth/uber/start') {
-      const clientId = process.env.UBER_CLIENT_ID;
-      const redirect = process.env.UBER_REDIRECT_URI;
-      const scope = process.env.UBER_SCOPES || 'request profile';
-      if (!clientId || !redirect) return send(res, 400, { error: 'UBER_CLIENT_ID and UBER_REDIRECT_URI must be set in .env' });
-      const authUrl = `https://auth.uber.com/oauth/v2/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirect)}&scope=${encodeURIComponent(scope)}&response_type=code`;
-      res.writeHead(302, { Location: authUrl });
-      return res.end();
-    }
-
-    // OAuth callback: exchange code for token and persist to .env
-    if (url.pathname === '/oauth/uber/callback') {
-      const code = url.searchParams.get('code');
-      if (!code) return send(res, 400, { error: 'Missing code' });
-      const clientId = process.env.UBER_CLIENT_ID;
-      const clientSecret = process.env.UBER_CLIENT_SECRET;
-      const redirect = process.env.UBER_REDIRECT_URI;
-      if (!clientId || !clientSecret || !redirect) return send(res, 400, { error: 'UBER_CLIENT_ID, UBER_CLIENT_SECRET and UBER_REDIRECT_URI must be set in .env' });
-      try {
-        const body = `client_id=${encodeURIComponent(clientId)}&client_secret=${encodeURIComponent(clientSecret)}&grant_type=authorization_code&redirect_uri=${encodeURIComponent(redirect)}&code=${encodeURIComponent(code)}`;
-        const tokenResp = await fetchJson('https://login.uber.com/oauth/v2/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
-        if (!tokenResp || !tokenResp.access_token) return send(res, 500, { error: 'Token exchange failed', details: tokenResp });
-        // Persist to .env (replace or append)
-        try {
-          let envContents = '';
-          if (fs.existsSync(envFile)) envContents = fs.readFileSync(envFile, 'utf8');
-          const set = (key, val) => {
-            const re = new RegExp(`^${key}=.*$`, 'm');
-            if (re.test(envContents)) envContents = envContents.replace(re, `${key}=${val}`);
-            else envContents += `\n${key}=${val}`;
-          };
-          set('UBER_TOKEN', tokenResp.access_token);
-          if (tokenResp.refresh_token) set('UBER_REFRESH_TOKEN', tokenResp.refresh_token);
-          fs.writeFileSync(envFile, envContents, 'utf8');
-        } catch (err) {
-          // ignore file write errors but return token in response
-        }
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        return res.end(`<h2>Uber connected</h2><p>Access token stored to server .env (if writable). You can now close this tab.</p>`);
-      } catch (err) {
-        return send(res, 500, { error: 'Token exchange failed', details: String(err) });
-      }
-    }
     const response = await fetchJson(url, { method: 'GET', headers });
     if (!Array.isArray(response?.prices)) return [];
     return response.prices.map((price) => ({
@@ -126,6 +81,27 @@ async function getUberFares(from, to) {
       price: price.estimate ? parseEstimate(price.estimate) : (price.low_estimate ?? price.high_estimate ?? 0),
       bookingUrl: 'https://www.uber.com/in/en/'
     }));
+  } catch {
+    return [];
+  }
+}
+
+// Simple file-backed user token store
+const uberUsersFile = path.join(root, 'data', 'uber_users.json');
+function readUberUsers() { try { return JSON.parse(fs.readFileSync(uberUsersFile, 'utf8')); } catch { return {}; } }
+function saveUberUsers(obj) { fs.writeFileSync(uberUsersFile, JSON.stringify(obj, null, 2)); }
+
+async function getUberFaresWithToken(token, from, to) {
+  if (!token) return [];
+  const pickup = await geocodePlace(from);
+  const drop = await geocodePlace(to);
+  if (!pickup || !drop) return [];
+  const url = `https://api.uber.com/v1.2/estimates/price?start_latitude=${pickup.lat}&start_longitude=${pickup.lon}&end_latitude=${drop.lat}&end_longitude=${drop.lon}`;
+  const headers = { Authorization: token.startsWith('Bearer ') ? token : `Bearer ${token}`, Accept: 'application/json', 'User-Agent': 'FarePool/1.0' };
+  try {
+    const response = await fetchJson(url, { method: 'GET', headers });
+    if (!Array.isArray(response?.prices)) return [];
+    return response.prices.map((price) => ({ provider: 'Uber', service: price.display_name || price.localized_display_name || 'Uber', price: price.estimate ? parseEstimate(price.estimate) : (price.low_estimate ?? price.high_estimate ?? 0), bookingUrl: 'https://www.uber.com/in/en/' }));
   } catch {
     return [];
   }
@@ -187,12 +163,80 @@ async function makeFares(from, to, at) {
 }
 function body(req) { return new Promise((resolve, reject) => { let text = ''; req.on('data', part => { text += part; if (text.length > 100000) req.destroy(); }); req.on('end', () => { try { resolve(JSON.parse(text || '{}')); } catch { reject(new Error('Invalid JSON')); } }); }); }
 
+function parseCookies(req) {
+  const header = req.headers && req.headers.cookie; if (!header) return {};
+  return header.split(';').map(s => s.trim()).reduce((acc, part) => { const idx = part.indexOf('='); if (idx === -1) return acc; const k = part.slice(0, idx); const v = decodeURIComponent(part.slice(idx+1)); acc[k] = v; return acc; }, {});
+}
+
 http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   try {
     if (req.method === 'GET' && url.pathname === '/api/fares') {
       const fares = await makeFares(url.searchParams.get('from') || '', url.searchParams.get('to') || '', url.searchParams.get('at') || '');
       return send(res, 200, { fares, notice: 'Live fare estimates are shown where available. Add approved provider API credentials for full real-time results.' });
+    }
+
+    // Per-user Uber OAuth start (creates a session cookie)
+    if (req.method === 'GET' && url.pathname === '/oauth/uber/start') {
+      const clientId = process.env.UBER_CLIENT_ID;
+      const redirect = process.env.UBER_REDIRECT_URI;
+      const scope = process.env.UBER_SCOPES || 'profile';
+      if (!clientId || !redirect) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'UBER_CLIENT_ID and UBER_REDIRECT_URI must be set in .env' })); }
+      const sessionId = `s_${Date.now().toString(36)}_${Math.floor(Math.random()*900000+100000)}`;
+      const state = sessionId;
+      const authUrl = `https://auth.uber.com/oauth/v2/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirect)}&scope=${encodeURIComponent(scope)}&response_type=code&state=${encodeURIComponent(state)}`;
+      // set session cookie and redirect
+      res.writeHead(302, { Location: authUrl, 'Set-Cookie': `fp_session=${sessionId}; Path=/; HttpOnly` });
+      return res.end();
+    }
+
+    // OAuth callback: exchange code for token and persist per-session
+    if (req.method === 'GET' && url.pathname === '/oauth/uber/callback') {
+      const code = url.searchParams.get('code');
+      const state = url.searchParams.get('state');
+      if (!code) return send(res, 400, { error: 'Missing code' });
+      const clientId = process.env.UBER_CLIENT_ID;
+      const clientSecret = process.env.UBER_CLIENT_SECRET;
+      const redirect = process.env.UBER_REDIRECT_URI;
+      if (!clientId || !clientSecret || !redirect) return send(res, 400, { error: 'UBER_CLIENT_ID, UBER_CLIENT_SECRET and UBER_REDIRECT_URI must be set in .env' });
+      try {
+        const bodyData = `client_id=${encodeURIComponent(clientId)}&client_secret=${encodeURIComponent(clientSecret)}&grant_type=authorization_code&redirect_uri=${encodeURIComponent(redirect)}&code=${encodeURIComponent(code)}`;
+        const tokenResp = await fetchJson('https://login.uber.com/oauth/v2/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: bodyData });
+        if (!tokenResp || !tokenResp.access_token) return send(res, 500, { error: 'Token exchange failed', details: tokenResp });
+        const sessionId = state || parseCookies(req).fp_session;
+        if (sessionId) {
+          const users = readUberUsers();
+          users[sessionId] = { access_token: tokenResp.access_token, refresh_token: tokenResp.refresh_token || null, obtained_at: Date.now() };
+          // try fetching profile
+          try {
+            const profile = await fetchJson('https://api.uber.com/v1.2/me', { method: 'GET', headers: { Authorization: `Bearer ${tokenResp.access_token}`, Accept: 'application/json' } });
+            users[sessionId].profile = { first_name: profile.first_name, last_name: profile.last_name, email: profile.email, uuid: profile.uuid };
+          } catch (_) {}
+          saveUberUsers(users);
+        }
+        // Inform the user and redirect back to app
+        res.writeHead(302, { Location: '/', 'Set-Cookie': `fp_session=${sessionId || ''}; Path=/; HttpOnly` });
+        return res.end();
+      } catch (err) {
+        return send(res, 500, { error: 'Token exchange failed', details: String(err) });
+      }
+    }
+
+    // Return session-connected Uber profile
+    if (req.method === 'GET' && url.pathname === '/api/me') {
+      const cookies = parseCookies(req); const session = cookies.fp_session; if (!session) return send(res, 200, { connected: false });
+      const users = readUberUsers(); const entry = users[session]; if (!entry) return send(res, 200, { connected: false });
+      return send(res, 200, { connected: true, profile: entry.profile || null });
+    }
+
+    // Get Uber fare estimates for connected user
+    if (req.method === 'GET' && url.pathname === '/api/uber/estimate') {
+      const cookies = parseCookies(req); const session = cookies.fp_session; if (!session) return send(res, 401, { error: 'Not connected' });
+      const users = readUberUsers(); const entry = users[session]; if (!entry || !entry.access_token) return send(res, 401, { error: 'Not connected' });
+      const from = url.searchParams.get('from') || ''; const to = url.searchParams.get('to') || '';
+      if (!from || !to) return send(res, 400, { error: 'Provide from and to' });
+      const fares = await getUberFaresWithToken(entry.access_token, from, to);
+      return send(res, 200, { fares });
     }
     if (req.method === 'GET' && url.pathname === '/api/pools') return send(res, 200, readPools());
     // Simple test endpoint to validate stored UBER_TOKEN

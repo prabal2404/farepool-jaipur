@@ -131,8 +131,29 @@ async function api(path, options) { if (location.protocol === 'file:') throw new
 async function search() {
   const from = $('#from').value.trim(), to = $('#to').value.trim(), at = $('#scheduledAt').value;
   $('#routeLabel').textContent = `${from} → ${to}`; $('#poolFrom').value = from; $('#poolTo').value = to; $('#poolTime').value = at;
-  try { const data = await api(`/api/fares?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&at=${encodeURIComponent(at)}`); fares = data.fares; pools = await api('/api/pools'); $('#status').textContent = data.notice; }
-  catch { fares = demoFares(from, to, at); $('#status').textContent = 'Showing built-in demo data. Run the backend for saved pool bookings.'; }
+  try {
+    const data = await api(`/api/fares?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&at=${encodeURIComponent(at)}`);
+    fares = data.fares;
+    pools = await api('/api/pools');
+    $('#status').textContent = data.notice;
+  } catch {
+    fares = demoFares(from, to, at);
+    $('#status').textContent = 'Showing built-in demo data. Run the backend for saved pool bookings.';
+  }
+
+  // If a user is connected via Uber, fetch their personal estimates and prefer them
+  try {
+    const me = await fetch('/api/me').then(r => r.json()).catch(() => null);
+    if (me && me.connected) {
+      const u = await fetch(`/api/uber/estimate?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`).then(r => r.json()).catch(() => null);
+      if (u && Array.isArray(u.fares) && u.fares.length) {
+        fares = [...u.fares.filter(f => f.provider === 'Uber'), ...fares.filter(f => f.provider !== 'Uber')];
+      }
+      const link = document.querySelector('div[style] a[href="/oauth/uber/start"]');
+      if (link) link.textContent = me.profile && (me.profile.first_name || me.profile.last_name) ? `Connected: ${me.profile.first_name || ''}` : 'Connected to Uber';
+    }
+  } catch {}
+
   renderFares(); renderPools();
 }
 let joinTargetPoolId = null;
