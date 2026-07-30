@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FarePool | Compare and share rides</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="container nav"><a class="brand" href="#top">fare<span>pool</span></a><span class="nav-note">Compare fares. Share rides.</span></div>
+  </header>
+  <main id="top" class="container">
+    <section class="hero">
+      <p class="eyebrow">SCHEDULED RIDE COMPARISON</p>
+      <h1>Plan ahead. Share the journey.</h1>
+      <p class="subcopy">Compare scheduled Auto, Hatchback, Sedan and SUV estimates, then join people travelling your route at the same planned time.</p>
+    </section>
+
+    <section class="panel search-panel" aria-label="Search fares">
+      <form id="searchForm" class="search-grid">
+        <label>From<input id="from" required value="Mansarovar" placeholder="Pickup location"></label>
+        <label>To<input id="to" required value="Jaipur Junction" placeholder="Drop location"></label>
+        <label>Scheduled departure<input id="scheduledAt" type="datetime-local" required></label>
+        <button class="primary" type="submit">Compare fares</button>
+      </form>
+      <p class="helper">FarePool is for future, scheduled rides only. Select your planned departure time.</p>
+    </section>
+
+    <section class="panel map-panel" aria-labelledby="mapHeading">
+      <div><p class="eyebrow">JAIPUR ROUTE MAP</p><h2 id="mapHeading">Pin your scheduled journey</h2></div>
+      <p class="helper">Choose a pickup point and drop point on the map. Pools are matched when both points fall along the host’s route in the right order.</p>
+      <div class="map-controls" aria-label="Map controls">
+        <button class="map-action active" type="button" data-map-mode="pickup">1. Pin pickup</button>
+        <button class="map-action" type="button" data-map-mode="dropoff">2. Pin drop point</button>
+        <span id="mapHint" class="map-hint">Click the map to place your pickup.</span>
+      </div>
+      <div id="map" role="application" aria-label="Jaipur route map"></div>
+      <p id="mapStatus" class="helper">Map routes use OpenStreetMap data. You can still type locations if map routing is unavailable.</p>
+    </section>
+
+    <p id="status" class="status" aria-live="polite"></p>
+    <section id="fareSection" class="section" aria-labelledby="fareHeading">
+      <div class="section-heading"><div><p class="eyebrow">SCHEDULED FARE RESULTS</p><h2 id="fareHeading">Auto and cab price estimates</h2></div><span id="routeLabel" class="route-label"></span></div>
+      <div id="fareCards" class="fare-grid"></div>
+      <div class="estimate-note">Prices are demo estimates in this version. Connect approved provider APIs to display live prices.</div>
+    </section>
+
+    <section class="section pools" aria-labelledby="poolsHeading">
+      <div class="section-heading"><div><p class="eyebrow">SCHEDULED CARPOOL</p><h2 id="poolsHeading">People travelling your route</h2></div><span id="poolCount" class="route-label"></span></div>
+      <div id="poolList" class="pool-list"></div>
+      <p id="noPools" class="empty">No matching pools yet. Start one below and invite others to join.</p>
+
+      <details class="panel create-pool" open>
+        <summary>+ Start a scheduled pool</summary>
+        <form id="poolForm" class="pool-form">
+          <label>Your name<input id="hostName" required placeholder="e.g. Aisha"></label>
+          <label>Seats available<input id="seats" type="number" min="1" max="6" value="3" required></label>
+          <label>From<input id="poolFrom" required placeholder="Pickup location"></label>
+          <label>To<input id="poolTo" required placeholder="Drop location"></label>
+          <label class="stop-field">Places passed on the way (optional)<input id="poolStops" placeholder="e.g. Domlur, MG Road"></label>
+          <label>Departure time<input id="poolTime" type="datetime-local" required></label>
+          <button class="primary" type="submit">Create pool</button>
+        </form>
+      </details>
+    </section>
+  </main>
+  <footer>FarePool demo · Never share payment details or personal addresses in a public pool.</footer>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

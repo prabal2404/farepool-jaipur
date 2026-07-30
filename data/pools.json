@@ -1,0 +1,5 @@
+[
+  { "id": "pool-101", "host": "Ananya", "from": "Mansarovar", "stops": ["Civil Lines"], "to": "Jaipur Junction", "time": "2026-08-02T08:30", "seats": 2, "route": [[26.852,75.772],[26.899,75.781],[26.920,75.790]] },
+  { "id": "pool-102", "host": "Rohan", "from": "Mansarovar", "stops": ["Sodala","Civil Lines"], "to": "Jaipur Junction", "time": "2026-08-02T09:00", "seats": 3, "route": [[26.852,75.772],[26.894,75.775],[26.899,75.781],[26.920,75.790]] },
+  { "id": "pool-103", "host": "Meera", "from": "Vaishali Nagar", "stops": ["Civil Lines","MI Road"], "to": "Jaipur Junction", "time": "2026-08-02T18:10", "seats": 1, "route": [[26.912,75.744],[26.899,75.781],[26.913,75.802],[26.920,75.790]] }
+]

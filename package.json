@@ -1,0 +1,8 @@
+{
+  "name": "farepool",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Compare ride fares and schedule shared pools.",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=20" }
+}
