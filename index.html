@@ -7,10 +7,18 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="join-modal.css">
+  <link rel="stylesheet" href="custom.css">
 </head>
 <body>
   <header class="header">
-    <div class="container nav"><a class="brand" href="#top">fare<span>pool</span></a><span class="nav-note">Compare fares. Share rides.</span></div>
+    <div class="container nav">
+      <a class="brand" href="#top">fare<span>pool</span></a>
+      <span class="nav-note">Compare fares. Share rides.</span>
+      <div class="header-actions">
+        <a id="openLogin" href="#" class="primary">Login</a>
+        <a id="openRegister" href="#" class="secondary">Register</a>
+      </div>
+    </div>
   </header>
   <main id="top" class="container">
     <section class="hero">
@@ -19,7 +27,8 @@
       <p class="subcopy">Compare scheduled Auto, Hatchback, Sedan and SUV estimates, then join people travelling your route at the same planned time.</p>
     </section>
 
-    <section class="panel search-panel" aria-label="Search fares">
+    <div class="main-grid">
+      <section class="panel search-panel left" aria-label="Search fares">
       <form id="searchForm" class="search-grid">
         <div class="autocomplete">
           <label>From<input id="from" required value="Mansarovar" placeholder="Pickup location"></label>
@@ -33,9 +42,9 @@
         <button class="primary" type="submit">Compare fares</button>
       </form>
       <p class="helper">FarePool is for future, scheduled rides only. Select your planned departure time.</p>
-    </section>
+      </section>
 
-    <section class="panel map-panel" aria-labelledby="mapHeading">
+      <section class="panel map-panel right" aria-labelledby="mapHeading">
       <div><p class="eyebrow">JAIPUR ROUTE MAP</p><h2 id="mapHeading">Pin your scheduled journey</h2></div>
       <p class="helper">Choose a pickup point and drop point on the map. Pools are matched when both points fall along the host’s route in the right order.</p>
       <div class="map-controls" aria-label="Map controls">
@@ -46,16 +55,16 @@
       </div>
       <div id="map" role="application" aria-label="Jaipur route map"></div>
       <p id="mapStatus" class="helper">Map routes use OpenStreetMap data. You can still type locations if map routing is unavailable.</p>
-    </section>
+      </section>
 
-    <p id="status" class="status" aria-live="polite"></p>
-    <section id="fareSection" class="section" aria-labelledby="fareHeading">
+      <p id="status" class="status" aria-live="polite"></p>
+      <section id="fareSection" class="section right" aria-labelledby="fareHeading">
       <div class="section-heading"><div><p class="eyebrow">SCHEDULED FARE RESULTS</p><h2 id="fareHeading">Auto and cab price estimates</h2></div><span id="routeLabel" class="route-label"></span></div>
       <div id="fareCards" class="fare-grid"></div>
       <div class="estimate-note">Prices are demo estimates in this version. Connect approved provider APIs to display live prices.</div>
-    </section>
+      </section>
 
-    <section class="section pools" aria-labelledby="poolsHeading">
+      <section class="section pools left" aria-labelledby="poolsHeading">
       <div class="section-heading"><div><p class="eyebrow">SCHEDULED CARPOOL</p><h2 id="poolsHeading">People travelling your route</h2></div><span id="poolCount" class="route-label"></span></div>
       <div id="poolList" class="pool-list"></div>
       <p id="noPools" class="empty">No matching pools yet. Start one below and invite others to join.</p>
@@ -80,7 +89,8 @@
           <button class="primary" type="submit">Create pool</button>
         </form>
       </details>
-    </section>
+      </section>
+    </div>
     <!-- Join pool modal -->
     <div id="joinModal" class="modal" aria-hidden="true">
       <div class="modal-content">
@@ -98,7 +108,6 @@
           <div class="modal-actions">
             <button type="button" id="joinUseCurrent" class="secondary">Use current location for pickup</button>
             <button class="primary" type="submit">Confirm join</button>
-            <button type="button" id="joinCancel">Cancel</button>
           </div>
         </form>
         <p id="joinStatus" class="status" aria-live="polite"></p>
@@ -122,6 +131,9 @@
       <h3>Login with mobile</h3>
       <form id="loginForm">
         <label>Mobile number<input id="loginPhone" placeholder="e.g. +919876543210" required></label>
+        <div id="otpSection" style="display:none;margin-top:8px">
+          <label>OTP<input id="loginOtp" placeholder="123456"></label>
+        </div>
         <div class="modal-actions"><button class="primary" type="submit">Login</button><button type="button" id="loginCancel">Cancel</button></div>
       </form>
       <p id="loginStatus" class="status" aria-live="polite"></p>

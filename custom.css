@@ -1,0 +1,39 @@
+:root{--left-width:360px}
+/* Layout overrides: two-column main content with left tiles */
+.main-grid{display:grid;grid-template-columns:var(--left-width) 1fr;gap:18px;margin-top:18px}
+.main-grid .left{display:flex;flex-direction:column;gap:12px}
+.main-grid .right{display:flex;flex-direction:column;gap:12px}
+.container{width:min(100% - 32px,1100px)}
+
+/* Bigger brand/logo */
+.brand{font-size:1.6rem}
+.header{height:84px}
+
+/* Pool tile styling */
+.pool-list{display:grid;grid-template-columns:1fr;gap:12px}
+.pool{padding:14px;border-radius:12px;display:flex;flex-direction:column;gap:8px}
+.pool h3{margin:0;font-size:1.05rem}
+.pool .pool-info{display:flex;flex-direction:column}
+.pool .pool-actions{display:flex;gap:8px;align-items:center}
+.pool .join{flex:0 0 auto}
+
+/* Make search and create pool appear as tiles full-width in left column */
+.search-panel{order:0}
+.pools{order:1}
+
+/* Slightly narrower map and cards on right */
+.map-panel, #fareSection{max-width:100%}
+
+@media(max-width:1100px){
+  :root{--left-width:320px}
+}
+@media(max-width:900px){
+  .main-grid{grid-template-columns:1fr;}
+  .container{width:100%;padding:12px}
+}
+
+/* Header actions (login/register) */
+.header-actions{margin-left:auto;display:flex;gap:8px;align-items:center}
+.header-actions a{display:inline-block;padding:8px 12px;border-radius:8px;text-decoration:none}
+.header-actions .primary{background:var(--brand);color:#fff}
+.header-actions .secondary{background:#eef2f4;color:var(--ink)}

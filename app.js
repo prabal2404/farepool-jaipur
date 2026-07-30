@@ -108,7 +108,32 @@ function renderFares() {
   $('#fareCards').innerHTML = fares.slice().sort((a,b) => a.price - b.price).map(fare => `<article class="fare-card ${fare.price === lowest ? 'lowest' : ''}">${fare.price === lowest ? '<span class="badge">LOWEST</span>' : ''}<div class="provider">${fare.provider}</div><p class="ride-type">${fare.service}</p><div class="amount">₹${fare.price}<small> estimated</small></div><p class="range">Estimated ride price for the full trip</p><div class="fare-note">Use the app to create or join a pool and complete the ride booking.</div></article>`).join('');
 }
 function distanceKm(a, b) { const rad = Math.PI / 180, x = (b[1] - a[1]) * rad * Math.cos((a[0] + b[0]) * rad / 2), y = (b[0] - a[0]) * rad; return 6371 * Math.sqrt(x*x + y*y); }
-function routePosition(route, point) { let nearest = { index:-1, distance:Infinity }; route.forEach((routePoint, index) => { const distance = distanceKm(routePoint, point); if (distance < nearest.distance) nearest = { index, distance }; }); return nearest.distance <= 1 ? nearest.index : -1; }
+function routePosition(route, point) {
+  if (!Array.isArray(route) || route.length < 2) return -1;
+  const R = 6371000;
+  const lat0 = point[0] * Math.PI / 180;
+  let best = { idx: -1, t: 0, dist: Infinity };
+  for (let i = 0; i < route.length - 1; i++) {
+    const a = route[i]; const b = route[i+1];
+    const latA = a[0] * Math.PI / 180, lonA = a[1] * Math.PI / 180;
+    const latB = b[0] * Math.PI / 180, lonB = b[1] * Math.PI / 180;
+    const meanLat = (a[0] + b[0]) / 2 * Math.PI / 180;
+    const ax = (lonA - point[1] * Math.PI / 180) * Math.cos(meanLat) * R;
+    const ay = (latA - lat0) * R;
+    const bx = (lonB - point[1] * Math.PI / 180) * Math.cos(meanLat) * R;
+    const by = (latB - lat0) * R;
+    const px = 0, py = 0;
+    const vx = bx - ax, vy = by - ay; const wx = px - ax, wy = py - ay;
+    const vlen2 = vx*vx + vy*vy;
+    const t = vlen2 === 0 ? 0 : Math.max(0, Math.min(1, (wx*vx + wy*vy) / vlen2));
+    const projx = ax + t * vx, projy = ay + t * vy;
+    const dist = Math.sqrt(projx*projx + projy*projy);
+    if (dist < best.dist) best = { idx: i, t, dist };
+  }
+  if (best.dist === Infinity) return -1;
+  if (best.dist > 1000) return -1;
+  return best.idx + best.t;
+}
 function mapRouteMatch(pool) { if (!pickupPoint || !dropoffPoint || !Array.isArray(pool.route) || pool.route.length < 2) return null; const start = routePosition(pool.route, pickupPoint), end = routePosition(pool.route, dropoffPoint); return start !== -1 && end !== -1 && start < end; }
 function matchesRoute(pool, from, to) {
   const mapMatch = mapRouteMatch(pool); if (mapMatch !== null) return mapMatch;
@@ -125,11 +150,27 @@ function renderPools() {
     const genderLabel = pool.gender && pool.gender !== 'Any' ? `<span>Gender: ${escapeHTML(pool.gender)}</span>` : '';
     const routeMatch = pickupPoint && dropoffPoint && mapRouteMatch(pool) ? '<span class="pool-match">Route is within 1 km of your trip</span>' : '';
     const manageBtn = (pool.host_phone && currentUserProfile && pool.host_phone === currentUserProfile.phone) ? `<button class="manage-requests" data-id="${pool.id}">Manage requests</button>` : '';
-    return `<article class="pool"><div><h3>${escapeHTML(pool.host)}'s pool</h3><div class="pool-info"><span><strong>${routeLabel}</strong></span><span>${formatTime(pool.time)}</span><span>${pool.seats} seat${pool.seats === 1 ? '' : 's'} left</span>${vehicleLabel}${genderLabel}${routeMatch}</div></div><button class="join" data-id="${pool.id}" ${pool.seats < 1 ? 'disabled' : ''}>${pool.seats < 1 ? 'Full' : 'Join pool'}</button>${manageBtn}</article>`;
+    return `<article class="pool"><div><h3>${escapeHTML(pool.host)}'s pool</h3><div class="pool-info"><span><strong>${routeLabel}</strong></span><span>${formatTime(pool.time)}</span><span>${pool.seats} seat${pool.seats === 1 ? '' : 's'} left</span>${vehicleLabel}${genderLabel}${routeMatch}</div></div><div class="pool-actions"><button class="join" data-id="${pool.id}" ${pool.seats < 1 ? 'disabled' : ''}>${pool.seats < 1 ? 'Full' : 'Join pool'}</button><button class="pool-chat" data-id="${pool.id}">Chat</button>${manageBtn}</div></article>`;
   }).join('');
   document.querySelectorAll('.join').forEach(button => button.addEventListener('click', () => joinPool(button.dataset.id)));
+  document.querySelectorAll('.pool-chat').forEach(button => button.addEventListener('click', () => openPoolChat(button.dataset.id)));
   // Add manage button handlers
   document.querySelectorAll('.manage-requests').forEach(button => button.addEventListener('click', () => openManageRequests(button.dataset.id)));
+}
+
+function openPoolChat(poolId) {
+  currentChatWith = null; currentPoolChat = poolId;
+  const pool = pools.find(p => p.id === poolId) || {};
+  const label = pool.host ? `Pool chat — ${pool.host}` : `Pool chat: ${poolId}`;
+  $('#chatWithLabel').textContent = label; $('#chatModal').setAttribute('aria-hidden', 'false'); $('#chatMessages').innerHTML = '';
+  loadPoolMessages(poolId);
+}
+
+async function loadPoolMessages(poolId) {
+  try {
+    const res = await fetch(`/api/messages?pool=${encodeURIComponent(poolId)}`); const data = await res.json(); const box = $('#chatMessages'); box.innerHTML = '';
+    if (data && Array.isArray(data.messages)) { data.messages.forEach(m => { const row = document.createElement('div'); row.textContent = `${m.from}: ${m.text}`; box.appendChild(row); }); box.scrollTop = box.scrollHeight; }
+  } catch { $('#chatMessages').textContent = 'Unable to load messages.'; }
 }
 
 async function openManageRequests(poolId) {
@@ -158,11 +199,20 @@ async function search() {
   try {
     const data = await api(`/api/fares?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&at=${encodeURIComponent(at)}`);
     fares = data.fares;
-    pools = await api('/api/pools');
+    // Server-side matching: prefer matched pools if backend available
+    try {
+      const matchRes = await fetch('/api/match', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ from, to, at }) });
+      if (matchRes.ok) {
+        const body = await matchRes.json(); pools = (body.matches || []).map(m => m.pool);
+      } else {
+        pools = await api('/api/pools');
+      }
+    } catch (e) { pools = await api('/api/pools'); }
     $('#status').textContent = data.notice;
   } catch {
     fares = demoFares(from, to, at);
     $('#status').textContent = 'Showing built-in demo data. Run the backend for saved pool bookings.';
+    pools = demoPools;
   }
 
   // If a user is connected via Uber, fetch their personal estimates and prefer them
@@ -201,9 +251,7 @@ function closeJoinModal() {
 }
 
 // Modal event handlers
-document.addEventListener('click', (e) => {
-  if (e.target && e.target.matches && e.target.matches('#joinCancel')) { e.preventDefault(); closeJoinModal(); }
-});
+// Note: Join modal 'Cancel' button removed; no direct close button available.
 
 document.getElementById('joinUseCurrent').addEventListener('click', async () => {
   if (!navigator.geolocation) { $('#joinStatus').textContent = 'Location access not supported.'; return; }
@@ -325,25 +373,37 @@ const openLogin = document.getElementById('openLogin');
 const loginModal = document.getElementById('loginModal');
 if (openLogin && loginModal) openLogin.addEventListener('click', () => loginModal.setAttribute('aria-hidden', 'false'));
 document.getElementById('loginCancel').addEventListener('click', () => { if (loginModal) loginModal.setAttribute('aria-hidden', 'true'); $('#loginStatus').textContent = ''; });
+let loginStep = 0;
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
-  e.preventDefault(); $('#loginStatus').textContent = 'Logging in…';
+  e.preventDefault(); $('#loginStatus').textContent = '';
   const phone = $('#loginPhone').value.trim();
-  try {
-    const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone }) });
-    const body = await res.json();
-    if (res.ok && body && body.ok) {
-      $('#loginStatus').textContent = 'Logged in.'; currentUserProfile = body.profile || { phone };
-      if (openLogin) openLogin.textContent = `Logged: ${currentUserProfile.phone}`;
-      setTimeout(() => { loginModal.setAttribute('aria-hidden', 'true'); $('#loginStatus').textContent = ''; }, 800);
-    } else {
-      $('#loginStatus').textContent = body && body.error ? body.error : 'Login failed.';
-    }
-  } catch (err) { $('#loginStatus').textContent = 'Login failed.'; }
+  if (loginStep === 0) {
+    if (!phone) { $('#loginStatus').textContent = 'Enter phone'; return; }
+    $('#loginStatus').textContent = 'Sending OTP…';
+    try {
+      const res = await fetch('/api/send-otp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone }) });
+      const body = await res.json(); if (res.ok) {
+        $('#loginStatus').textContent = 'OTP sent. Check your phone (demo logs).'; document.getElementById('otpSection').style.display = 'block'; loginStep = 1; }
+      else $('#loginStatus').textContent = body && body.error ? body.error : 'Unable to send OTP';
+    } catch (err) { $('#loginStatus').textContent = 'Unable to send OTP'; }
+  } else {
+    const code = $('#loginOtp').value.trim(); if (!code) { $('#loginStatus').textContent = 'Enter OTP'; return; }
+    $('#loginStatus').textContent = 'Verifying…';
+    try {
+      const res = await fetch('/api/verify-otp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, code }) });
+      const body = await res.json(); if (res.ok && body && body.ok) {
+        $('#loginStatus').textContent = 'Logged in.'; currentUserProfile = body.profile || { phone };
+        if (openLogin) openLogin.textContent = `Logged: ${currentUserProfile.phone}`;
+        setTimeout(() => { loginModal.setAttribute('aria-hidden', 'true'); $('#loginStatus').textContent = ''; document.getElementById('otpSection').style.display = 'none'; loginStep = 0; }, 800);
+      } else { $('#loginStatus').textContent = body && body.error ? body.error : 'Verify failed.'; }
+    } catch { $('#loginStatus').textContent = 'Verify failed.'; }
+  }
 });
 
 // Presence and chat
 let eventSource = null;
 let currentChatWith = null;
+let currentPoolChat = null;
 async function loadProfiles() {
   try {
     const res = await fetch('/api/profiles'); const data = await res.json();
@@ -351,7 +411,7 @@ async function loadProfiles() {
     if (!data || !Array.isArray(data.profiles) || !data.profiles.length) { list.textContent = 'No profiles yet.'; return; }
     data.profiles.forEach(p => {
       const item = document.createElement('div'); item.className = 'profile-item';
-      item.innerHTML = `<strong>${p.phone}</strong> <span class="helper">${p.ready ? 'Ready' : 'Away'}</span> `;
+      item.innerHTML = `<strong>${p.phone}</strong> <span class="helper">${p.ready ? 'Ready' : 'Away'}</span> <span class="helper">Rating: ${p.rating || '—'}</span> `;
       const toggle = document.createElement('button'); toggle.textContent = p.ready ? 'Set away' : 'Set ready'; toggle.className = 'secondary';
       toggle.addEventListener('click', async () => {
         await fetch('/api/profile/ready', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ ready: !p.ready }) });
@@ -359,12 +419,20 @@ async function loadProfiles() {
       });
       const chatBtn = document.createElement('button'); chatBtn.textContent = 'Chat'; chatBtn.className = 'primary';
       chatBtn.addEventListener('click', () => openChat(p.phone));
+      const rateBtn = document.createElement('button'); rateBtn.textContent = 'Rate'; rateBtn.className = 'secondary';
+      rateBtn.addEventListener('click', async () => {
+        const score = Number(prompt(`Rate ${p.phone} 1–5`)); if (!score || score < 1 || score > 5) return alert('Invalid score');
+        const comment = prompt('Optional comment') || '';
+        try { const res = await fetch('/api/rate', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ rated_phone: p.phone, score, comment }) }); const body = await res.json(); if (res.ok) { alert(`Saved — new avg ${body.average || '—'}`); loadProfiles(); } else alert(body.error || 'Unable to save'); } catch { alert('Unable to save'); }
+      });
       item.appendChild(toggle); item.appendChild(chatBtn); list.appendChild(item);
+      item.appendChild(rateBtn);
     });
   } catch (err) { $('#profilesList').textContent = 'Unable to load profiles.'; }
 }
 
 function openChat(phone) {
+  currentPoolChat = null;
   currentChatWith = phone; $('#chatWithLabel').textContent = `Chat with ${phone}`; $('#chatModal').setAttribute('aria-hidden', 'false'); $('#chatMessages').innerHTML = '';
   loadMessages(phone);
 }
@@ -382,13 +450,15 @@ async function loadMessages(phone) {
 
 $('#openPeople').addEventListener('click', () => { $('#peopleModal').setAttribute('aria-hidden', 'false'); loadProfiles(); });
 $('#peopleClose').addEventListener('click', () => { $('#peopleModal').setAttribute('aria-hidden', 'true'); });
-$('#chatClose').addEventListener('click', () => { $('#chatModal').setAttribute('aria-hidden', 'true'); currentChatWith = null; });
+$('#chatClose').addEventListener('click', () => { $('#chatModal').setAttribute('aria-hidden', 'true'); currentChatWith = null; currentPoolChat = null; });
 
 $('#chatForm').addEventListener('submit', async (e) => {
-  e.preventDefault(); if (!currentChatWith) return; const text = $('#chatText').value.trim(); if (!text) return; $('#chatText').value = '';
+  e.preventDefault(); const text = $('#chatText').value.trim(); if (!text) return; $('#chatText').value = '';
   try {
-    const res = await fetch('/api/messages', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ to: currentChatWith, text }) });
-    const body = await res.json(); if (res.ok && body && body.ok) { loadMessages(currentChatWith); }
+    let bodyObj = { text };
+    if (currentPoolChat) bodyObj.pool = currentPoolChat; else if (currentChatWith) bodyObj.to = currentChatWith; else { $('#chatStatus').textContent = 'No chat target'; return; }
+    const res = await fetch('/api/messages', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(bodyObj) });
+    const body = await res.json(); if (res.ok && body && body.ok) { if (currentPoolChat) loadPoolMessages(currentPoolChat); else loadMessages(currentChatWith); }
     else { $('#chatStatus').textContent = body && body.error ? body.error : 'Send failed'; setTimeout(() => $('#chatStatus').textContent = '', 2000); }
   } catch { $('#chatStatus').textContent = 'Send failed'; setTimeout(() => $('#chatStatus').textContent = '', 2000); }
 });
@@ -398,7 +468,7 @@ function ensureEventSource() {
     if (eventSource) return;
     eventSource = new EventSource('/api/events');
     eventSource.addEventListener('presence', (e) => { try { const d = JSON.parse(e.data); loadProfiles(); } catch {} });
-    eventSource.addEventListener('message', (e) => { try { const m = JSON.parse(e.data); if (currentChatWith && (m.from === currentChatWith || m.to === currentChatWith)) loadMessages(currentChatWith); } catch {} });
+    eventSource.addEventListener('message', (e) => { try { const m = JSON.parse(e.data); if (currentPoolChat && m.pool === currentPoolChat) loadPoolMessages(currentPoolChat); else if (currentChatWith && (m.from === currentChatWith || m.to === currentChatWith)) loadMessages(currentChatWith); } catch {} });
     eventSource.onerror = () => { /* silent */ };
   } catch (err) { /* not supported */ }
 }
