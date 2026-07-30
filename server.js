@@ -57,109 +57,18 @@ function distanceKm(a, b) { const rad = Math.PI / 180; const x = (b[1] - a[1]) *
 
 function routePosition(route, point) { let nearest = { index:-1, distance:Infinity }; route.forEach((routePoint, index) => { const distance = distanceKm(routePoint, point); if (distance < nearest.distance) nearest = { index, distance }; }); return nearest.distance <= 1 ? nearest.index : -1; }
 
-async function getUberFares(from, to) {
-  const token = process.env.UBER_TOKEN || process.env.UBER_SERVER_TOKEN || process.env.UBER_API_KEY;
-  if (!token) return [];
-
-  const pickup = await geocodePlace(from);
-  const drop = await geocodePlace(to);
-  if (!pickup || !drop) return [];
-
-  const url = `https://api.uber.com/v1.2/estimates/price?start_latitude=${pickup.lat}&start_longitude=${pickup.lon}&end_latitude=${drop.lat}&end_longitude=${drop.lon}`;
-  const headers = {
-    Authorization: token.startsWith('Bearer ') || token.startsWith('Token ') ? token : `Bearer ${token}`,
-    'Accept-Language': 'en_US',
-    'User-Agent': 'FarePool/1.0',
-    Accept: 'application/json'
-  };
-  try {
-    const response = await fetchJson(url, { method: 'GET', headers });
-    if (!Array.isArray(response?.prices)) return [];
-    return response.prices.map((price) => ({
-      provider: 'Uber',
-      service: price.display_name || price.localized_display_name || 'Uber',
-      price: price.estimate ? parseEstimate(price.estimate) : (price.low_estimate ?? price.high_estimate ?? 0),
-      bookingUrl: 'https://www.uber.com/in/en/'
-    }));
-  } catch {
-    return [];
-  }
-}
-
-// Simple file-backed user token store
-const uberUsersFile = path.join(root, 'data', 'uber_users.json');
-function readUberUsers() { try { return JSON.parse(fs.readFileSync(uberUsersFile, 'utf8')); } catch { return {}; } }
-function saveUberUsers(obj) { fs.writeFileSync(uberUsersFile, JSON.stringify(obj, null, 2)); }
-
-async function getUberFaresWithToken(token, from, to) {
-  if (!token) return [];
-  const pickup = await geocodePlace(from);
-  const drop = await geocodePlace(to);
-  if (!pickup || !drop) return [];
-  const url = `https://api.uber.com/v1.2/estimates/price?start_latitude=${pickup.lat}&start_longitude=${pickup.lon}&end_latitude=${drop.lat}&end_longitude=${drop.lon}`;
-  const headers = { Authorization: token.startsWith('Bearer ') ? token : `Bearer ${token}`, Accept: 'application/json', 'User-Agent': 'FarePool/1.0' };
-  try {
-    const response = await fetchJson(url, { method: 'GET', headers });
-    if (!Array.isArray(response?.prices)) return [];
-    return response.prices.map((price) => ({ provider: 'Uber', service: price.display_name || price.localized_display_name || 'Uber', price: price.estimate ? parseEstimate(price.estimate) : (price.low_estimate ?? price.high_estimate ?? 0), bookingUrl: 'https://www.uber.com/in/en/' }));
-  } catch {
-    return [];
-  }
-}
-
-async function getRapidoFares(from, to) {
-  const token = process.env.RAPIDO_TOKEN;
-  const deviceId = process.env.RAPIDO_DEVICE_ID;
-  const customerId = process.env.RAPIDO_CUSTOMER_ID;
-  if (!token || !deviceId || !customerId) return [];
-
-  const pickup = await geocodePlace(from);
-  const drop = await geocodePlace(to);
-  if (!pickup || !drop) return [];
-
-  const payload = JSON.stringify({
-    pickupLocation: { addressType: '', address: pickup.address.split(',')[0], lat: pickup.lat, lng: pickup.lon, name: '' },
-    dropLocation: { addressType: '', address: drop.address.split(',')[0], lat: drop.lat, lng: drop.lon, name: drop.address.split(',')[0] },
-    serviceType: process.env.RAPIDO_SERVICE_TYPE || '57370b61a6855d70057417d1',
-    customer: customerId,
-    couponCode: '',
-    paymentType: process.env.RAPIDO_PAYMENT_TYPE || 'paytm'
-  });
-
-  const headers = {
-    deviceid: deviceId,
-    latitude: process.env.RAPIDO_LATITUDE || '26.9124',
-    longitude: process.env.RAPIDO_LONGITUDE || '75.7873',
-    appid: '2',
-    currentdatetime: new Date().toISOString().replace('T', ' ').slice(0, 19),
-    internet: '0',
-    appversion: process.env.RAPIDO_APPVERSION || '73',
-    Authorization: `Bearer ${token}`,
-    'Content-Type': 'application/json; charset=UTF-8',
-    Host: 'auth.rapido.bike',
-    Connection: 'Keep-Alive',
-    'Accept-Encoding': 'gzip',
-    'User-Agent': 'okhttp/3.6.0',
-    'Cache-Control': 'no-cache'
-  };
-
-  try {
-    const response = await fetchJson('https://auth.rapido.bike/om/api/orders/v2/rideAmount', { method: 'POST', headers, body: payload });
-    if (!response?.data?.quotes) return [];
-    return response.data.quotes.map((quote) => ({ provider: 'Rapido', service: quote.serviceName || quote.serviceId || 'Rapido', price: Number(quote.amount) || 0, bookingUrl: 'https://www.rapido.bike/' }));
-  } catch {
-    return [];
-  }
-}
+// Simple file-backed user store
+const usersFile = path.join(root, 'data', 'users.json');
+function readUsers() { try { return JSON.parse(fs.readFileSync(usersFile, 'utf8')); } catch { return {}; } }
+function saveUsers(obj) { fs.writeFileSync(usersFile, JSON.stringify(obj, null, 2)); }
 
 async function makeFares(from, to, at) {
   const seed = [...`${from}${to}${at}`].reduce((sum, char) => sum + char.charCodeAt(0), 0);
   const base = 115 + (seed % 40);
-  const fallbackFares = [{ provider: 'Uber', service: 'Hatchback / Go', price: base + 4, bookingUrl: 'https://www.uber.com/in/en/' }, { provider: 'Rapido', service: 'Auto', price: base - 12, bookingUrl: 'https://www.rapido.bike/' }, { provider: 'Uber', service: 'SUV / XL', price: base + 82, bookingUrl: 'https://www.uber.com/in/en/' }];
-
-  const [uberFares, rapidoFares] = await Promise.all([getUberFares(from, to), getRapidoFares(from, to)]);
-  const fares = [...(uberFares.length ? uberFares : fallbackFares.filter(fare => fare.provider !== 'Uber')), ...rapidoFares];
-  return fares.length ? fares : fallbackFares;
+  return [
+    { provider: 'Uber', service: 'Hatchback / Go', price: base + 4, bookingUrl: 'https://www.uber.com/in/en/' },
+    { provider: 'Uber', service: 'SUV / XL', price: base + 82, bookingUrl: 'https://www.uber.com/in/en/' }
+  ];
 }
 function body(req) { return new Promise((resolve, reject) => { let text = ''; req.on('data', part => { text += part; if (text.length > 100000) req.destroy(); }); req.on('end', () => { try { resolve(JSON.parse(text || '{}')); } catch { reject(new Error('Invalid JSON')); } }); }); }
 
@@ -176,80 +85,26 @@ http.createServer(async (req, res) => {
       return send(res, 200, { fares, notice: 'Live fare estimates are shown where available. Add approved provider API credentials for full real-time results.' });
     }
 
-    // Per-user Uber OAuth start (creates a session cookie)
-    if (req.method === 'GET' && url.pathname === '/oauth/uber/start') {
-      const clientId = process.env.UBER_CLIENT_ID;
-      const redirect = process.env.UBER_REDIRECT_URI;
-      const scope = process.env.UBER_SCOPES || 'profile';
-      if (!clientId || !redirect) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'UBER_CLIENT_ID and UBER_REDIRECT_URI must be set in .env' })); }
+    // Mobile number login: create session
+    if (req.method === 'POST' && url.pathname === '/api/login') {
+      let payload = {};
+      try { payload = await body(req); } catch { payload = {}; }
+      const phone = (payload && String(payload.phone || '').trim()) || '';
+      if (!phone.match(/^\+?[0-9]{6,15}$/)) return send(res, 400, { error: 'Provide a valid phone number' });
       const sessionId = `s_${Date.now().toString(36)}_${Math.floor(Math.random()*900000+100000)}`;
-      const state = sessionId;
-      const authUrl = `https://auth.uber.com/oauth/v2/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirect)}&scope=${encodeURIComponent(scope)}&response_type=code&state=${encodeURIComponent(state)}`;
-      // set session cookie and redirect
-      res.writeHead(302, { Location: authUrl, 'Set-Cookie': `fp_session=${sessionId}; Path=/; HttpOnly` });
-      return res.end();
+      const users = readUsers(); users[sessionId] = { phone, created_at: Date.now() }; saveUsers(users);
+      res.writeHead(200, { 'Set-Cookie': `fp_session=${sessionId}; Path=/; HttpOnly`, 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, profile: { phone } }));
     }
 
-    // OAuth callback: exchange code for token and persist per-session
-    if (req.method === 'GET' && url.pathname === '/oauth/uber/callback') {
-      const code = url.searchParams.get('code');
-      const state = url.searchParams.get('state');
-      if (!code) return send(res, 400, { error: 'Missing code' });
-      const clientId = process.env.UBER_CLIENT_ID;
-      const clientSecret = process.env.UBER_CLIENT_SECRET;
-      const redirect = process.env.UBER_REDIRECT_URI;
-      if (!clientId || !clientSecret || !redirect) return send(res, 400, { error: 'UBER_CLIENT_ID, UBER_CLIENT_SECRET and UBER_REDIRECT_URI must be set in .env' });
-      try {
-        const bodyData = `client_id=${encodeURIComponent(clientId)}&client_secret=${encodeURIComponent(clientSecret)}&grant_type=authorization_code&redirect_uri=${encodeURIComponent(redirect)}&code=${encodeURIComponent(code)}`;
-        const tokenResp = await fetchJson('https://login.uber.com/oauth/v2/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: bodyData });
-        if (!tokenResp || !tokenResp.access_token) return send(res, 500, { error: 'Token exchange failed', details: tokenResp });
-        const sessionId = state || parseCookies(req).fp_session;
-        if (sessionId) {
-          const users = readUberUsers();
-          users[sessionId] = { access_token: tokenResp.access_token, refresh_token: tokenResp.refresh_token || null, obtained_at: Date.now() };
-          // try fetching profile
-          try {
-            const profile = await fetchJson('https://api.uber.com/v1.2/me', { method: 'GET', headers: { Authorization: `Bearer ${tokenResp.access_token}`, Accept: 'application/json' } });
-            users[sessionId].profile = { first_name: profile.first_name, last_name: profile.last_name, email: profile.email, uuid: profile.uuid };
-          } catch (_) {}
-          saveUberUsers(users);
-        }
-        // Inform the user and redirect back to app
-        res.writeHead(302, { Location: '/', 'Set-Cookie': `fp_session=${sessionId || ''}; Path=/; HttpOnly` });
-        return res.end();
-      } catch (err) {
-        return send(res, 500, { error: 'Token exchange failed', details: String(err) });
-      }
-    }
-
-    // Return session-connected Uber profile
+    // Return session-connected profile
     if (req.method === 'GET' && url.pathname === '/api/me') {
       const cookies = parseCookies(req); const session = cookies.fp_session; if (!session) return send(res, 200, { connected: false });
-      const users = readUberUsers(); const entry = users[session]; if (!entry) return send(res, 200, { connected: false });
-      return send(res, 200, { connected: true, profile: entry.profile || null });
+      const users = readUsers(); const entry = users[session]; if (!entry) return send(res, 200, { connected: false });
+      return send(res, 200, { connected: true, profile: { phone: entry.phone } });
     }
 
-    // Get Uber fare estimates for connected user
-    if (req.method === 'GET' && url.pathname === '/api/uber/estimate') {
-      const cookies = parseCookies(req); const session = cookies.fp_session; if (!session) return send(res, 401, { error: 'Not connected' });
-      const users = readUberUsers(); const entry = users[session]; if (!entry || !entry.access_token) return send(res, 401, { error: 'Not connected' });
-      const from = url.searchParams.get('from') || ''; const to = url.searchParams.get('to') || '';
-      if (!from || !to) return send(res, 400, { error: 'Provide from and to' });
-      const fares = await getUberFaresWithToken(entry.access_token, from, to);
-      return send(res, 200, { fares });
-    }
     if (req.method === 'GET' && url.pathname === '/api/pools') return send(res, 200, readPools());
-    // Simple test endpoint to validate stored UBER_TOKEN
-    if (req.method === 'GET' && url.pathname === '/api/test-uber') {
-      const token = process.env.UBER_TOKEN || process.env.UBER_SERVER_TOKEN || process.env.UBER_API_KEY;
-      if (!token) return send(res, 400, { ok: false, error: 'No UBER_TOKEN found in server environment.' });
-      try {
-        const fares = await getUberFares('Mansarovar', 'Jaipur Junction');
-        return send(res, 200, { ok: true, fares });
-      } catch (err) {
-        return send(res, 500, { ok: false, error: String(err) });
-      }
-    }
     const checkPath = url.pathname.match(/^\/api\/pools\/([^/]+)\/check$/);
     if (req.method === 'POST' && checkPath) {
       const pools = readPools();
@@ -320,10 +175,10 @@ http.createServer(async (req, res) => {
         seats: pool.seats,
         requests: []
       };
-      // Attach host session UUID if available
+      // Attach host phone from session if available
       try {
         const cookies = parseCookies(req); const session = cookies.fp_session; if (session) {
-          const users = readUberUsers(); const entry = users[session]; if (entry && entry.profile && entry.profile.uuid) created.host_uuid = entry.profile.uuid;
+          const users = readUsers(); const entry = users[session]; if (entry && entry.phone) created.host_phone = entry.phone;
         }
       } catch (_) {}
       pools.push(created);
@@ -392,9 +247,10 @@ http.createServer(async (req, res) => {
       let payload = {};
       try { payload = await body(req); } catch { payload = {}; }
       if (!payload || (!payload.pickup && !payload.drop)) return send(res, 400, { error: 'Provide pickup and drop' });
-      const cookies = parseCookies(req); const session = cookies.fp_session; const users = readUberUsers(); const requester = (session && users[session] && users[session].profile) ? users[session].profile : { first_name: payload.name || 'Guest' };
+      const cookies = parseCookies(req); const session = cookies.fp_session; const users = readUsers(); const entry = session && users[session] ? users[session] : null;
       const reqId = `r_${Date.now().toString(36)}_${Math.floor(Math.random()*9000+1000)}`;
-      const newReq = { id: reqId, requester: { name: `${requester.first_name || ''} ${requester.last_name || ''}`.trim(), uuid: requester.uuid || null }, pickup: payload.pickup || null, drop: payload.drop || null, status: 'pending', created_at: Date.now() };
+      const requester = entry ? { phone: entry.phone, name: payload.name || entry.phone } : { phone: null, name: payload.name || 'Guest' };
+      const newReq = { id: reqId, requester, pickup: payload.pickup || null, drop: payload.drop || null, status: 'pending', created_at: Date.now() };
       pool.requests = Array.isArray(pool.requests) ? pool.requests : [];
       pool.requests.push(newReq);
       savePools(pools);
@@ -405,8 +261,8 @@ http.createServer(async (req, res) => {
     const requestsList = url.pathname.match(/^\/api\/pools\/([^/]+)\/requests$/);
     if (req.method === 'GET' && requestsList) {
       const pools = readPools(); const pool = pools.find(p => p.id === requestsList[1]); if (!pool) return send(res, 404, { error: 'Pool not found.' });
-      const cookies = parseCookies(req); const session = cookies.fp_session; const users = readUberUsers(); const entry = session && users[session] ? users[session] : null;
-      if (!pool.host_uuid || !entry || !entry.profile || pool.host_uuid !== entry.profile.uuid) return send(res, 403, { error: 'Only pool host may view requests.' });
+      const cookies = parseCookies(req); const session = cookies.fp_session; const users = readUsers(); const entry = session && users[session] ? users[session] : null;
+      if (!pool.host_phone || !entry || !entry.phone || pool.host_phone !== entry.phone) return send(res, 403, { error: 'Only pool host may view requests.' });
       return send(res, 200, { requests: pool.requests || [] });
     }
 
@@ -414,8 +270,8 @@ http.createServer(async (req, res) => {
     const acceptPath = url.pathname.match(/^\/api\/pools\/([^/]+)\/requests\/([^/]+)\/accept$/);
     if (req.method === 'POST' && acceptPath) {
       const [ , poolId, reqId ] = acceptPath; const pools = readPools(); const pool = pools.find(p => p.id === poolId); if (!pool) return send(res, 404, { error: 'Pool not found.' });
-      const cookies = parseCookies(req); const session = cookies.fp_session; const users = readUberUsers(); const entry = session && users[session] ? users[session] : null;
-      if (!pool.host_uuid || !entry || !entry.profile || pool.host_uuid !== entry.profile.uuid) return send(res, 403, { error: 'Only pool host may accept requests.' });
+      const cookies = parseCookies(req); const session = cookies.fp_session; const users = readUsers(); const entry = session && users[session] ? users[session] : null;
+      if (!pool.host_phone || !entry || !entry.phone || pool.host_phone !== entry.phone) return send(res, 403, { error: 'Only pool host may accept requests.' });
       pool.requests = Array.isArray(pool.requests) ? pool.requests : [];
       const r = pool.requests.find(x => x.id === reqId); if (!r) return send(res, 404, { error: 'Request not found.' });
       if (r.status !== 'pending') return send(res, 400, { error: 'Request already processed.' });
@@ -427,8 +283,8 @@ http.createServer(async (req, res) => {
     const rejectPath = url.pathname.match(/^\/api\/pools\/([^/]+)\/requests\/([^/]+)\/reject$/);
     if (req.method === 'POST' && rejectPath) {
       const [ , poolId, reqId ] = rejectPath; const pools = readPools(); const pool = pools.find(p => p.id === poolId); if (!pool) return send(res, 404, { error: 'Pool not found.' });
-      const cookies = parseCookies(req); const session = cookies.fp_session; const users = readUberUsers(); const entry = session && users[session] ? users[session] : null;
-      if (!pool.host_uuid || !entry || !entry.profile || pool.host_uuid !== entry.profile.uuid) return send(res, 403, { error: 'Only pool host may reject requests.' });
+      const cookies = parseCookies(req); const session = cookies.fp_session; const users = readUsers(); const entry = session && users[session] ? users[session] : null;
+      if (!pool.host_phone || !entry || !entry.phone || pool.host_phone !== entry.phone) return send(res, 403, { error: 'Only pool host may reject requests.' });
       pool.requests = Array.isArray(pool.requests) ? pool.requests : [];
       const r = pool.requests.find(x => x.id === reqId); if (!r) return send(res, 404, { error: 'Request not found.' });
       if (r.status !== 'pending') return send(res, 400, { error: 'Request already processed.' });

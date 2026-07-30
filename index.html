@@ -114,7 +114,18 @@
       </div>
   </main>
   <footer>FarePool demo · Never share payment details or personal addresses in a public pool.</footer>
-  <div style="position:fixed;right:16px;bottom:16px;z-index:1000"><a href="/oauth/uber/start" class="secondary">Connect Uber</a></div>
+  <div style="position:fixed;right:16px;bottom:16px;z-index:1000"><button id="openLogin" class="secondary">Login (phone)</button></div>
+  <!-- Login modal -->
+  <div id="loginModal" class="modal" aria-hidden="true">
+    <div class="modal-content">
+      <h3>Login with mobile</h3>
+      <form id="loginForm">
+        <label>Mobile number<input id="loginPhone" placeholder="e.g. +919876543210" required></label>
+        <div class="modal-actions"><button class="primary" type="submit">Login</button><button type="button" id="loginCancel">Cancel</button></div>
+      </form>
+      <p id="loginStatus" class="status" aria-live="polite"></p>
+    </div>
+  </div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="app.js"></script>
 </body>

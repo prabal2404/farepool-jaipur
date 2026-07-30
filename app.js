@@ -124,7 +124,7 @@ function renderPools() {
     const vehicleLabel = pool.vehicleType && pool.vehicleType !== 'Any' ? `<span>Vehicle: ${escapeHTML(pool.vehicleType)}</span>` : '';
     const genderLabel = pool.gender && pool.gender !== 'Any' ? `<span>Gender: ${escapeHTML(pool.gender)}</span>` : '';
     const routeMatch = pickupPoint && dropoffPoint && mapRouteMatch(pool) ? '<span class="pool-match">Route is within 1 km of your trip</span>' : '';
-    const manageBtn = (pool.host_uuid && currentUserProfile && pool.host_uuid === currentUserProfile.uuid) ? `<button class="manage-requests" data-id="${pool.id}">Manage requests</button>` : '';
+    const manageBtn = (pool.host_phone && currentUserProfile && pool.host_phone === currentUserProfile.phone) ? `<button class="manage-requests" data-id="${pool.id}">Manage requests</button>` : '';
     return `<article class="pool"><div><h3>${escapeHTML(pool.host)}'s pool</h3><div class="pool-info"><span><strong>${routeLabel}</strong></span><span>${formatTime(pool.time)}</span><span>${pool.seats} seat${pool.seats === 1 ? '' : 's'} left</span>${vehicleLabel}${genderLabel}${routeMatch}</div></div><button class="join" data-id="${pool.id}" ${pool.seats < 1 ? 'disabled' : ''}>${pool.seats < 1 ? 'Full' : 'Join pool'}</button>${manageBtn}</article>`;
   }).join('');
   document.querySelectorAll('.join').forEach(button => button.addEventListener('click', () => joinPool(button.dataset.id)));
@@ -170,12 +170,8 @@ async function search() {
     const me = await fetch('/api/me').then(r => r.json()).catch(() => null);
     if (me && me.connected) {
       currentUserProfile = me.profile || null;
-      const u = await fetch(`/api/uber/estimate?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`).then(r => r.json()).catch(() => null);
-      if (u && Array.isArray(u.fares) && u.fares.length) {
-        fares = [...u.fares.filter(f => f.provider === 'Uber'), ...fares.filter(f => f.provider !== 'Uber')];
-      }
-      const link = document.querySelector('div[style] a[href="/oauth/uber/start"]');
-      if (link) link.textContent = me.profile && (me.profile.first_name || me.profile.last_name) ? `Connected: ${me.profile.first_name || ''}` : 'Connected to Uber';
+      const link = document.getElementById('openLogin');
+      if (link) link.textContent = currentUserProfile && currentUserProfile.phone ? `Logged: ${currentUserProfile.phone}` : 'Logged in';
     } else {
       currentUserProfile = null;
     }
@@ -323,3 +319,24 @@ $('#poolForm').addEventListener('submit', async event => {
   renderPools();
 });
 const firstAvailableTime = futureDefault(); $('#scheduledAt').min = firstAvailableTime; $('#poolTime').min = firstAvailableTime; $('#scheduledAt').value = firstAvailableTime; initialiseMap(); search();
+
+// Login modal handlers
+const openLogin = document.getElementById('openLogin');
+const loginModal = document.getElementById('loginModal');
+if (openLogin && loginModal) openLogin.addEventListener('click', () => loginModal.setAttribute('aria-hidden', 'false'));
+document.getElementById('loginCancel').addEventListener('click', () => { if (loginModal) loginModal.setAttribute('aria-hidden', 'true'); $('#loginStatus').textContent = ''; });
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault(); $('#loginStatus').textContent = 'Logging in…';
+  const phone = $('#loginPhone').value.trim();
+  try {
+    const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone }) });
+    const body = await res.json();
+    if (res.ok && body && body.ok) {
+      $('#loginStatus').textContent = 'Logged in.'; currentUserProfile = body.profile || { phone };
+      if (openLogin) openLogin.textContent = `Logged: ${currentUserProfile.phone}`;
+      setTimeout(() => { loginModal.setAttribute('aria-hidden', 'true'); $('#loginStatus').textContent = ''; }, 800);
+    } else {
+      $('#loginStatus').textContent = body && body.error ? body.error : 'Login failed.';
+    }
+  } catch (err) { $('#loginStatus').textContent = 'Login failed.'; }
+});
