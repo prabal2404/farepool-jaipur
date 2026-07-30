@@ -205,7 +205,8 @@ http.createServer(async (req, res) => {
       if (pickupPoint && dropPoint && Array.isArray(pool.route) && pool.route.length >= 2) {
         const start = routePosition(pool.route, pickupPoint);
         const end = routePosition(pool.route, dropPoint);
-        if (start === -1 || end === -1 || start >= end) return send(res, 400, { error: 'Pickup or drop point does not follow the pool route.' });
+        if (start === -1 || end === -1) return send(res, 400, { error: 'Pickup and drop must both lie on the pool route. You cannot join this pool because your route differs.' });
+        if (start >= end) return send(res, 400, { error: 'Pickup must come before drop along the pool route. You cannot join this pool.' });
       } else if (payload && (payload.pickup || payload.drop)) {
         // Fallback: match by named stops/order if route coords are not available
         const stops = [pool.from, ...(pool.stops || []), pool.to].map(s => String(s || '').trim().toLowerCase());
@@ -214,12 +215,13 @@ http.createServer(async (req, res) => {
         if (pickupName && dropName) {
           const pIndex = stops.indexOf(pickupName);
           const dIndex = stops.indexOf(dropName);
-          if (pIndex === -1 || dIndex === -1 || pIndex >= dIndex) return send(res, 400, { error: 'Pickup or drop location is not on the pool route.' });
+          if (pIndex === -1 || dIndex === -1) return send(res, 400, { error: 'Pickup and drop must both match stops on the pool route. You cannot join this pool because your route differs.' });
+          if (pIndex >= dIndex) return send(res, 400, { error: 'Pickup must come before drop in the pool route order. You cannot join this pool.' });
         } else {
-          return send(res, 400, { error: 'Please provide pickup and drop locations for joining.' });
+          return send(res, 400, { error: 'Please provide both pickup and drop locations to join this pool.' });
         }
       } else {
-        return send(res, 400, { error: 'Please provide pickup and drop locations for joining.' });
+        return send(res, 400, { error: 'Please provide both pickup and drop locations to join this pool.' });
       }
 
       pool.seats -= 1;
