@@ -1,5 +1,6 @@
 // FarePool backend. Uses only Node.js built-in modules, so no npm packages are needed.
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { URL } = require('url');
@@ -18,16 +19,93 @@ const mime = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascri
 function readPools() { return JSON.parse(fs.readFileSync(poolFile, 'utf8')); }
 function savePools(pools) { fs.writeFileSync(poolFile, JSON.stringify(pools, null, 2)); }
 function send(res, code, data) { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(data)); }
-function makeFares(from, to, at) {
-  const seed = [...`${from}${to}${at}`].reduce((sum, char) => sum + char.charCodeAt(0), 0); const base = 115 + (seed % 40);
-  return [{ provider: 'Ola', service: 'Auto', price: base - 18, bookingUrl: 'https://www.olacabs.com/' }, { provider: 'Uber', service: 'Hatchback / Go', price: base + 4, bookingUrl: 'https://www.uber.com/in/en/' }, { provider: 'Rapido', service: 'Auto', price: base - 12, bookingUrl: 'https://www.rapido.bike/' }, { provider: 'Ola', service: 'Sedan / Prime', price: base + 42, bookingUrl: 'https://www.olacabs.com/' }, { provider: 'Uber', service: 'SUV / XL', price: base + 82, bookingUrl: 'https://www.uber.com/in/en/' }];
+
+function fetchJson(url, options = {}) {
+  return new Promise((resolve, reject) => {
+    const req = https.request(url, options, (res) => {
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); }
+        catch (err) { reject(err); }
+      });
+    });
+
+    req.on('error', reject);
+    if (options.body) req.write(options.body);
+    req.end();
+  });
+}
+
+async function geocodePlace(text) {
+  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(text)}&limit=1&countrycodes=in`;
+  const result = await fetchJson(url, { headers: { 'User-Agent': 'FarePool/1.0 (https://github.com/prabal2404/farepool-jaipur)', 'Accept-Language': 'en' } });
+  if (!Array.isArray(result) || !result[0]) return null;
+  return { lat: parseFloat(result[0].lat), lon: parseFloat(result[0].lon), address: result[0].display_name };
+}
+
+async function getRapidoFares(from, to) {
+  const token = process.env.RAPIDO_TOKEN;
+  const deviceId = process.env.RAPIDO_DEVICE_ID;
+  const customerId = process.env.RAPIDO_CUSTOMER_ID;
+  if (!token || !deviceId || !customerId) return [];
+
+  const pickup = await geocodePlace(from);
+  const drop = await geocodePlace(to);
+  if (!pickup || !drop) return [];
+
+  const payload = JSON.stringify({
+    pickupLocation: { addressType: '', address: pickup.address.split(',')[0], lat: pickup.lat, lng: pickup.lon, name: '' },
+    dropLocation: { addressType: '', address: drop.address.split(',')[0], lat: drop.lat, lng: drop.lon, name: drop.address.split(',')[0] },
+    serviceType: process.env.RAPIDO_SERVICE_TYPE || '57370b61a6855d70057417d1',
+    customer: customerId,
+    couponCode: '',
+    paymentType: process.env.RAPIDO_PAYMENT_TYPE || 'paytm'
+  });
+
+  const headers = {
+    deviceid: deviceId,
+    latitude: process.env.RAPIDO_LATITUDE || '26.9124',
+    longitude: process.env.RAPIDO_LONGITUDE || '75.7873',
+    appid: '2',
+    currentdatetime: new Date().toISOString().replace('T', ' ').slice(0, 19),
+    internet: '0',
+    appversion: process.env.RAPIDO_APPVERSION || '73',
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json; charset=UTF-8',
+    Host: 'auth.rapido.bike',
+    Connection: 'Keep-Alive',
+    'Accept-Encoding': 'gzip',
+    'User-Agent': 'okhttp/3.6.0',
+    'Cache-Control': 'no-cache'
+  };
+
+  try {
+    const response = await fetchJson('https://auth.rapido.bike/om/api/orders/v2/rideAmount', { method: 'POST', headers, body: payload });
+    if (!response?.data?.quotes) return [];
+    return response.data.quotes.map((quote) => ({ provider: 'Rapido', service: quote.serviceName || quote.serviceId || 'Rapido', price: Number(quote.amount) || 0, bookingUrl: 'https://www.rapido.bike/' }));
+  } catch {
+    return [];
+  }
+}
+
+async function makeFares(from, to, at) {
+  const seed = [...`${from}${to}${at}`].reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  const base = 115 + (seed % 40);
+  const fares = [{ provider: 'Ola', service: 'Auto', price: base - 18, bookingUrl: 'https://www.olacabs.com/' }, { provider: 'Uber', service: 'Hatchback / Go', price: base + 4, bookingUrl: 'https://www.uber.com/in/en/' }, { provider: 'Ola', service: 'Sedan / Prime', price: base + 42, bookingUrl: 'https://www.olacabs.com/' }, { provider: 'Uber', service: 'SUV / XL', price: base + 82, bookingUrl: 'https://www.uber.com/in/en/' }];
+  const rapidoFares = await getRapidoFares(from, to);
+  return [...fares, ...rapidoFares];
 }
 function body(req) { return new Promise((resolve, reject) => { let text = ''; req.on('data', part => { text += part; if (text.length > 100000) req.destroy(); }); req.on('end', () => { try { resolve(JSON.parse(text || '{}')); } catch { reject(new Error('Invalid JSON')); } }); }); }
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   try {
-    if (req.method === 'GET' && url.pathname === '/api/fares') return send(res, 200, { fares: makeFares(url.searchParams.get('from') || '', url.searchParams.get('to') || '', url.searchParams.get('at') || ''), notice: 'Demo fare estimates are shown. Add approved provider API credentials before using live prices.' });
+    if (req.method === 'GET' && url.pathname === '/api/fares') {
+      const fares = await makeFares(url.searchParams.get('from') || '', url.searchParams.get('to') || '', url.searchParams.get('at') || '');
+      return send(res, 200, { fares, notice: 'Live fare estimates are shown where available. Add approved provider API credentials for full real-time results.' });
+    }
     if (req.method === 'GET' && url.pathname === '/api/pools') return send(res, 200, readPools());
     if (req.method === 'POST' && url.pathname === '/api/pools') { const pool = await body(req); const stops = Array.isArray(pool.stops) ? pool.stops.filter(stop => typeof stop === 'string' && stop.trim()).slice(0, 6) : []; const route = Array.isArray(pool.route) ? pool.route.filter(point => Array.isArray(point) && point.length === 2 && point.every(value => Number.isFinite(value))).slice(0, 500) : []; if (!pool.host || !pool.from || !pool.to || !pool.time || !Number.isInteger(pool.seats) || pool.seats < 1 || pool.seats > 6 || Number.isNaN(new Date(pool.time).getTime()) || new Date(pool.time) <= new Date()) return send(res, 400, { error: 'Please provide a future time, name, route, and 1–6 seats.' }); const pools = readPools(); const created = { id: `pool-${Date.now()}`, host: pool.host.trim(), from: pool.from.trim(), to: pool.to.trim(), stops, route, time: pool.time, seats: pool.seats }; pools.push(created); savePools(pools); return send(res, 201, created); }
     const join = url.pathname.match(/^\/api\/pools\/([^/]+)\/join$/);
